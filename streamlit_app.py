@@ -351,8 +351,8 @@ def get_users():
 
 def get_devices(user_id):
     df = run_query(
-        "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = ?",
-        params=[user_id]
+        "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = %s",
+        params=(user_id,)
     )
     devices = []
     for _, row in df.iterrows():
@@ -377,8 +377,8 @@ def get_devices(user_id):
 
 def get_rates(zip_code):
     df = run_query(
-        "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates WHERE zip_code = ? ORDER BY hour",
-        params=[zip_code]
+        "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates WHERE zip_code = %s ORDER BY hour",
+        params=(zip_code,)
     )
     # Build a lookup from whatever hours we have
     rate_lookup = {}
