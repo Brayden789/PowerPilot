@@ -3,7 +3,7 @@ Quick test entrypoint — run with: python main.py
 """
 import json
 from optimizer import compute_energy_results
-from ai_engine import generate_energy_recommendation
+from ai_engine import generate_energy_recommendation, ask_energy_question
 
 SAMPLE_INPUT = {
     "user_id": "u1",
@@ -27,6 +27,10 @@ if __name__ == "__main__":
     SAMPLE_INPUT["computed_results"] = computed
     print(json.dumps(computed, indent=2))
 
-    print("\nCalling Claude AI engine...")
+    print("\nCalling AI engine for recommendations...")
     result = generate_energy_recommendation(SAMPLE_INPUT)
     print(json.dumps(result, indent=2))
+
+    print("\nTesting chat feature...")
+    answer = ask_energy_question("When is the best time to do my laundry?", SAMPLE_INPUT)
+    print(answer)

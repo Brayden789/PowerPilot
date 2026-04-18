@@ -1,6 +1,27 @@
 import json
 
 
+def build_chat_prompt(question: str, data: dict) -> str:
+    devices = data.get("devices", [])
+    results = data.get("computed_results", {})
+    rates = data.get("energy_rates", [])
+
+    return f"""You are PowerPilot, a friendly home energy advisor. The user is looking at their home energy dashboard and has a question.
+
+Their devices:
+{json.dumps(devices, indent=2)}
+
+Their energy rates by hour:
+{json.dumps(rates, indent=2)}
+
+Their current usage summary:
+{json.dumps(results, indent=2)}
+
+The user asks: "{question}"
+
+Answer in 2-4 sentences. Be specific to their actual devices and data. Be friendly and practical. No jargon."""
+
+
 def build_recommendation_prompt(data: dict) -> str:
     devices = data.get("devices", [])
     rates = data.get("energy_rates", [])

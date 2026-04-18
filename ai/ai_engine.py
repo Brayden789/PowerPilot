@@ -24,7 +24,6 @@ def generate_energy_recommendation(data: dict) -> dict:
     raw = message.choices[0].message.content
 
     try:
-        # Claude returns JSON inside a markdown block sometimes
         if "```json" in raw:
             raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw:
@@ -32,3 +31,20 @@ def generate_energy_recommendation(data: dict) -> dict:
         return json.loads(raw)
     except (json.JSONDecodeError, IndexError):
         return {"error": "Failed to parse AI response", "raw": raw}
+
+
+def ask_energy_question(question: str, data: dict) -> str:
+    """
+    Chat feature — user asks a freeform question about their energy usage.
+    Returns a plain English answer with their house data as context.
+    """
+    from prompt_templates import build_chat_prompt
+    prompt = build_chat_prompt(question, data)
+
+    message = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        max_tokens=512,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    return message.choices[0].message.content.strip()
