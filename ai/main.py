@@ -4,6 +4,7 @@ Quick test entrypoint — run with: python main.py
 import json
 from optimizer import compute_energy_results
 from ai_engine import generate_energy_recommendation, ask_energy_question
+from rates_fetcher import get_rates_by_zip
 
 SAMPLE_INPUT = {
     "user_id": "u1",
@@ -22,6 +23,10 @@ SAMPLE_INPUT = {
 }
 
 if __name__ == "__main__":
+    print("Fetching real energy rates for zip code 90210...")
+    SAMPLE_INPUT["energy_rates"] = get_rates_by_zip("90210")
+    print(json.dumps(SAMPLE_INPUT["energy_rates"], indent=2))
+
     print("Computing energy results...")
     computed = compute_energy_results(SAMPLE_INPUT)
     SAMPLE_INPUT["computed_results"] = computed
@@ -32,5 +37,5 @@ if __name__ == "__main__":
     print(json.dumps(result, indent=2))
 
     print("\nTesting chat feature...")
-    answer = ask_energy_question("When is the best time to do my laundry?", SAMPLE_INPUT)
+    answer = ask_energy_question("Which device should I turn off first to save the most money?", SAMPLE_INPUT)
     print(answer)
