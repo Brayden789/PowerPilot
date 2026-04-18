@@ -322,13 +322,26 @@ div[data-testid="stTab"] button[aria-selected="true"] {
 # ─────────────────────────────────────────
 @st.cache_resource
 def get_snowflake_connection():
-    return st.connection("snowflake")
+    return snowflake.connector.connect(
+        account=st.secrets["SNOWFLAKE_ACCOUNT"],
+        user=st.secrets["SNOWFLAKE_USER"],
+        password=st.secrets["SNOWFLAKE_PASSWORD"],
+        database="POWERPILOT",
+        schema="MAIN",
+    )
 
 def run_query(query, params=None):
+    import pandas as pd
     conn = get_snowflake_connection()
+    cursor = conn.cursor()
     if params:
-        return conn.query(query, params=params)
-    return conn.query(query)
+        cursor.execute(query, params)
+    else:
+        cursor.execute(query)
+    columns = [col[0] for col in cursor.description]
+    rows = cursor.fetchall()
+    cursor.close()
+    return pd.DataFrame(rows, columns=columns)
 
 # ─────────────────────────────────────────
 # DATA FUNCTIONS
