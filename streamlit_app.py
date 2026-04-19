@@ -16,119 +16,6 @@ st.set_page_config(
 )
 
 # -----------------------------------------
-# DEVICE DEFAULTS
-# Smart lookup: name -> (watts, hours_on, hours_idle)
-# Seasonal appliances get flagged separately
-# -----------------------------------------
-DEVICE_DEFAULTS = {
-    # Kitchen
-    "refrigerator":        (150,  24,  0),
-    "fridge":              (150,  24,  0),
-    "microwave":           (1200, 0.5, 0),
-    "dishwasher":          (1800, 1.5, 0),
-    "oven":                (2400, 1.0, 0),
-    "stove":               (1500, 1.0, 0),
-    "coffee maker":        (800,  0.5, 0),
-    "toaster":             (900,  0.2, 0),
-    "toaster oven":        (1200, 0.5, 0),
-    "kettle":              (1500, 0.3, 0),
-    # Laundry
-    "washer":              (500,  1.0, 0),
-    "washing machine":     (500,  1.0, 0),
-    "dryer":               (5000, 1.0, 0),
-    "clothes dryer":       (5000, 1.0, 0),
-    # Lighting
-    "led light":           (10,   6,  18),
-    "led lights":          (10,   6,  18),
-    "led bulb":            (10,   6,  18),
-    "light":               (60,   6,  18),
-    "lights":              (60,   6,  18),
-    "lamp":                (60,   5,  19),
-    "ceiling light":       (60,   6,  18),
-    "ceiling fan":         (75,   6,  18),
-    # Entertainment
-    "tv":                  (100,  4,  20),
-    "television":          (100,  4,  20),
-    "monitor":             (30,   8,  16),
-    "gaming pc":           (400,  4,  20),
-    "desktop pc":          (300,  6,  18),
-    "desktop":             (300,  6,  18),
-    "laptop":              (60,   6,  18),
-    "xbox":                (120,  3,  21),
-    "playstation":         (120,  3,  21),
-    "ps5":                 (200,  3,  21),
-    "ps4":                 (140,  3,  21),
-    "nintendo switch":     (18,   3,  21),
-    "router":              (10,   24,  0),
-    "modem":               (10,   24,  0),
-    # Climate — seasonal (handled specially in projection)
-    "air conditioner":     (1500, 8,  16),
-    "ac":                  (1500, 8,  16),
-    "window ac":           (1200, 8,  16),
-    "central ac":          (3500, 8,  16),
-    "heater":              (1500, 8,  16),
-    "space heater":        (1500, 8,  16),
-    "electric heater":     (1500, 8,  16),
-    "furnace":             (600,  8,  16),
-    "heat pump":           (1000, 8,  16),
-    "electric furnace":    (10000,8,  16),
-    # Water
-    "water heater":        (4000, 3,  21),
-    "electric water heater":(4000,3,  21),
-    # Other
-    "vacuum":              (1400, 0.5, 0),
-    "hair dryer":          (1875, 0.3, 0),
-    "phone charger":       (5,    8,  16),
-    "tablet charger":      (10,   6,  18),
-    "electric blanket":    (200,  6,  18),
-    "dehumidifier":        (280,  6,  18),
-    "humidifier":          (50,   8,  16),
-    "pool pump":           (1500, 8,  16),
-    "hot tub":             (3000, 2,  22),
-    "garage door opener":  (350,  0.1, 0),
-    "security camera":     (15,   24,  0),
-    "smart speaker":       (3,    24,  0),
-    "alexa":               (3,    24,  0),
-    "google home":         (3,    24,  0),
-    "printer":             (30,   0.5, 0),
-}
-
-# Seasonal appliances: months they are ACTIVE (1=Jan, 12=Dec)
-SEASONAL_MONTHS = {
-    "air conditioner":      [6, 7, 8, 9],
-    "ac":                   [6, 7, 8, 9],
-    "window ac":            [6, 7, 8, 9],
-    "central ac":           [6, 7, 8, 9],
-    "heater":               [11, 12, 1, 2, 3],
-    "space heater":         [11, 12, 1, 2, 3],
-    "electric heater":      [11, 12, 1, 2, 3],
-    "furnace":              [11, 12, 1, 2, 3],
-    "heat pump":            [11, 12, 1, 2, 3],
-    "electric furnace":     [11, 12, 1, 2, 3],
-    "pool pump":            [5, 6, 7, 8, 9],
-}
-
-MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-
-def get_device_defaults(name: str):
-    key = name.strip().lower()
-    if key in DEVICE_DEFAULTS:
-        return DEVICE_DEFAULTS[key]
-    # partial match
-    for k, v in DEVICE_DEFAULTS.items():
-        if k in key or key in k:
-            return v
-    return (100, 2, 22)  # generic fallback
-
-def is_seasonal(name: str):
-    key = name.strip().lower()
-    return key in SEASONAL_MONTHS
-
-def get_active_months(name: str):
-    key = name.strip().lower()
-    return SEASONAL_MONTHS.get(key, list(range(1, 13)))
-
-# -----------------------------------------
 # STYLES
 # -----------------------------------------
 st.markdown("""
@@ -312,6 +199,12 @@ html, body, [class*="css"] {
     color: #C0D0E0; max-width: 80%; line-height: 1.5;
 }
 
+.proj-bar-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.proj-month { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: #4A6080; width: 30px; }
+.proj-bar-bg { flex: 1; height: 10px; background: #1E2A3A; border-radius: 5px; overflow: hidden; }
+.proj-bar-fill { height: 10px; border-radius: 5px; background: linear-gradient(90deg, #0066FF, #00D4FF); }
+.proj-val { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: #00D4FF; width: 45px; text-align: right; }
+
 .stButton > button {
     background: linear-gradient(135deg, #0066FF, #00D4FF);
     color: #080C12; font-family: 'Syne', sans-serif; font-weight: 700;
@@ -334,7 +227,7 @@ div[data-testid="stTab"] button[aria-selected="true"] { color: #00D4FF; border-b
 """, unsafe_allow_html=True)
 
 # -----------------------------------------
-# SNOWFLAKE
+# SNOWFLAKE CONNECTION
 # -----------------------------------------
 @st.cache_resource
 def get_snowflake_connection():
@@ -365,6 +258,9 @@ def run_write(query, params=None):
 # -----------------------------------------
 # DATA FUNCTIONS
 # -----------------------------------------
+def get_users():
+    return run_query("SELECT user_id, zip_code FROM POWERPILOT.MAIN.users")
+
 def get_devices(user_id):
     df = run_query(
         "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = %s",
@@ -390,10 +286,10 @@ def get_devices(user_id):
         devices.append(device)
     return devices
 
-def get_rates():
+def get_rates(zip_code):
     df = run_query(
         "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates WHERE zip_code = %s ORDER BY hour",
-        params=("13037",)
+        params=(zip_code,)
     )
     rate_lookup = {}
     for _, row in df.iterrows():
@@ -429,7 +325,8 @@ def compute_energy_results(devices, rates):
             "optimization": {"best_hours": [], "worst_hours": [], "potential_savings_percent": 0, "potential_monthly_savings_dollars": 0},
             "phantom_load": {"total_watts": 0, "daily_kwh": 0, "percentage_of_total": 0},
             "power_score": 0,
-            "monthly_projection": {m: 0 for m in MONTH_NAMES},
+            "monthly_projection": {"Jan": 0, "Feb": 0, "Mar": 0, "Apr": 0, "May": 0, "Jun": 0,
+                                   "Jul": 0, "Aug": 0, "Sep": 0, "Oct": 0, "Nov": 0, "Dec": 0},
         }
 
     avg_rate = sum(r["cost_per_kwh"] for r in rates) / len(rates) if rates else 0.12
@@ -473,23 +370,15 @@ def compute_energy_results(devices, rates):
     off_peak_bonus = round(min(20, savings_pct * 0.2))
     power_score = max(0, min(100, 100 - peak_usage_penalty - inefficiency_penalty + off_peak_bonus))
 
-    # Monthly projection — accounts for seasonal devices
-    monthly_projection = {}
-    for i, month in enumerate(MONTH_NAMES):
-        month_num = i + 1
-        month_kwh = 0.0
-        for device in devices:
-            name_key = device["device_name"].strip().lower()
-            active_months = get_active_months(name_key)
-            if month_num not in active_months:
-                continue  # seasonal device not active this month
-            on_watts = device.get("power_on_watts", 0)
-            idle_watts = device.get("power_idle_watts", on_watts * 0.05)
-            hours_on = device.get("hours_on_per_day", 0)
-            hours_idle = device.get("hours_idle_per_day", 0)
-            kwh_per_day = (on_watts * hours_on + idle_watts * hours_idle) / 1000
-            month_kwh += kwh_per_day
-        monthly_projection[month] = round(month_kwh * 30 * avg_rate, 2)
+    monthly_multipliers = {
+        "Jan": 1.15, "Feb": 1.10, "Mar": 1.00, "Apr": 0.95,
+        "May": 0.92, "Jun": 1.05, "Jul": 1.20, "Aug": 1.18,
+        "Sep": 1.05, "Oct": 0.95, "Nov": 1.00, "Dec": 1.12
+    }
+    monthly_projection = {
+        month: round(total_cost_per_month * mult, 2)
+        for month, mult in monthly_multipliers.items()
+    }
 
     return {
         "summary": {"total_kwh_per_day": round(total_kwh, 3), "total_cost_per_month": total_cost_per_month},
@@ -520,12 +409,15 @@ def call_groq(prompt, max_tokens=1024):
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-def generate_recommendation(devices, rates, computed):
-    power_score = computed.get("power_score", 50)
+def generate_recommendation(data):
+    devices = data.get("devices", [])
+    rates = data.get("energy_rates", [])
+    results = data.get("computed_results", {})
+    power_score = results.get("power_score", 50)
     prompt = f"""You are an energy optimization AI. Analyze this user's energy data and return recommendations.
 Devices: {json.dumps(devices)}
 Rates: {json.dumps(rates)}
-Summary: {json.dumps(computed)}
+Summary: {json.dumps(results)}
 PowerScore is {power_score}/100. Return ONLY a JSON object, no extra text:
 {{"current_energy_score":{power_score},"new_energy_score":<int higher than {power_score} max 100>,"recommendations":["<tip>","<tip>","<tip>"],"estimated_monthly_savings":<float>,"insights":["<insight>","<insight>"],"best_usage_hours":[<ints 0-23>],"worst_usage_hours":[<ints 0-23>]}}"""
     raw = call_groq(prompt, max_tokens=1024)
@@ -538,11 +430,11 @@ PowerScore is {power_score}/100. Return ONLY a JSON object, no extra text:
     except Exception:
         return {"error": "Failed to parse AI response"}
 
-def ask_question(question, devices, rates, computed):
+def ask_question(question, data):
     prompt = f"""You are PowerPilot, a friendly home energy advisor.
-Devices: {json.dumps(devices)}
-Rates: {json.dumps(rates)}
-Summary: {json.dumps(computed)}
+Devices: {json.dumps(data.get('devices', []))}
+Rates: {json.dumps(data.get('energy_rates', []))}
+Summary: {json.dumps(data.get('computed_results', {}))}
 User asks: "{question}"
 Answer in 2-4 sentences. Be specific, friendly, practical. No jargon."""
     return call_groq(prompt, max_tokens=512)
@@ -556,29 +448,23 @@ if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
 if "refresh_devices" not in st.session_state:
     st.session_state.refresh_devices = 0
-if "device_name_input" not in st.session_state:
-    st.session_state.device_name_input = ""
-if "suggested_watts" not in st.session_state:
-    st.session_state.suggested_watts = 100
-if "suggested_on" not in st.session_state:
-    st.session_state.suggested_on = 2.0
-if "suggested_idle" not in st.session_state:
-    st.session_state.suggested_idle = 22.0
 
+# -----------------------------------------
+# LOAD DATA — hardcoded to u1, no dropdown
+# -----------------------------------------
 USER_ID = "u1"
 
-# -----------------------------------------
-# LOAD DATA
-# -----------------------------------------
-_placeholder = st.empty()
-with _placeholder:
-    with st.spinner("Loading your energy profile..."):
-        _ = st.session_state.refresh_devices
-        devices = get_devices(USER_ID)
-        rates = get_rates()
-_placeholder.empty()
+users_df = get_users()
+zip_row = users_df[users_df["USER_ID"] == USER_ID].iloc[0]
+zip_code = zip_row["ZIP_CODE"]
 
+_ = st.session_state.refresh_devices
+devices = get_devices(USER_ID)
+rates = get_rates(zip_code)
+
+data = {"user_id": USER_ID, "devices": devices, "energy_rates": rates}
 computed = compute_energy_results(devices, rates)
+data["computed_results"] = computed
 
 # -----------------------------------------
 # HEADER
@@ -676,6 +562,7 @@ with tab1:
             <div class="hour-bar" style="background:{color};height:{height_pct}%;"></div>
         </div>"""
     bars_html += "</div>"
+
     labels_html = '<div style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;margin-top:4px;">'
     for h in range(24):
         labels_html += f'<div class="hour-label">{h:02d}</div>'
@@ -749,31 +636,17 @@ with tab2:
             """, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Add device form with smart defaults
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>', unsafe_allow_html=True)
-
-    new_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...", key="new_device_name")
-
-    # Auto-detect defaults as user types — show hint and pre-fill sliders
-    if new_name:
-        w, on, idle = get_device_defaults(new_name)
-        seasonal_note = ""
-        if is_seasonal(new_name):
-            active = get_active_months(new_name.strip().lower())
-            month_labels = [MONTH_NAMES[m-1] for m in active]
-            seasonal_note = f" · Seasonal — only active in {', '.join(month_labels)}"
-        st.markdown(f'<div style="font-size:0.72rem;color:#00D4FF;font-family:Space Mono,monospace;margin-bottom:0.5rem;">⚡ Detected: ~{w}W · {on}h on · {idle}h idle{seasonal_note} — adjust below if needed</div>', unsafe_allow_html=True)
-    else:
-        w, on, idle = 100, 2, 22
-
     with st.form("add_device_form", clear_on_submit=True):
-        fc1, fc2, fc3 = st.columns(3)
+        fc1, fc2, fc3, fc4 = st.columns(4)
         with fc1:
-            new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=int(w))
+            new_name = st.text_input("Device Name", placeholder="e.g. Dishwasher")
         with fc2:
-            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=float(on), step=0.5)
+            new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=100)
         with fc3:
-            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=float(idle), step=0.5)
+            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=1.0, step=0.5)
+        with fc4:
+            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=23.0, step=0.5)
         submitted = st.form_submit_button("⚡ Add Device")
         if submitted and new_name:
             add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
@@ -794,30 +667,41 @@ with tab2:
                 st.success(f"Removed {to_delete}")
                 st.rerun()
 
-# ── TAB 3: MONTHLY PROJECTION (LINE CHART) ──
+# ── TAB 3: MONTHLY PROJECTION ──
 with tab3:
     st.markdown('<div class="section-header">12-Month Cost Projection <div class="section-line"></div></div>', unsafe_allow_html=True)
     projection = computed["monthly_projection"]
+    max_proj = max(projection.values()) if any(v > 0 for v in projection.values()) else 1
+
+    proj_html = ""
+    for month, cost in projection.items():
+        bar_pct = int((cost / max_proj) * 100)
+        proj_html += f"""
+        <div class="proj-bar-wrap">
+            <div class="proj-month">{month}</div>
+            <div class="proj-bar-bg"><div class="proj-bar-fill" style="width:{bar_pct}%"></div></div>
+            <div class="proj-val">${cost}</div>
+        </div>"""
+
     annual_total = round(sum(projection.values()), 2)
     annual_savings = round(annual_total * computed["optimization"]["potential_savings_percent"] / 100, 2)
+    peak_month = max(projection, key=projection.get) if any(v > 0 for v in projection.values()) else "—"
+    peak_val = projection.get(peak_month, 0)
 
-    col_p1, col_p2 = st.columns([2.5, 1])
+    col_p1, col_p2 = st.columns([2, 1])
     with col_p1:
         if all(v == 0 for v in projection.values()):
             st.info("Add devices to see your monthly projection.")
         else:
-            proj_df = pd.DataFrame({
-                "Month": list(projection.keys()),
-                "Cost ($)": list(projection.values()),
-            })
-            proj_df["Month"] = pd.Categorical(proj_df["Month"], categories=MONTH_NAMES, ordered=True)
-            proj_df = proj_df.sort_values("Month").set_index("Month")
-            st.line_chart(proj_df, color="#00D4FF", height=260)
-            st.markdown('<div style="font-size:0.65rem;color:#4A6080;font-family:Space Mono,monospace;margin-top:0.4rem;">Seasonal appliances (AC, heating) are only counted in their active months.</div>', unsafe_allow_html=True)
-
+            st.markdown(f"""
+            <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.5rem;">
+                <div style="font-size:0.7rem;color:#4A6080;font-family:Space Mono,monospace;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1rem;">
+                    Estimated monthly cost — based on seasonal usage patterns
+                </div>
+                {proj_html}
+            </div>
+            """, unsafe_allow_html=True)
     with col_p2:
-        peak_month = max(projection, key=projection.get) if any(v > 0 for v in projection.values()) else "—"
-        peak_val = projection.get(peak_month, 0)
         st.markdown(f"""
         <div class="metric-card">
             <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Annual Total</div>
@@ -841,7 +725,7 @@ with tab4:
     else:
         if st.button("⚡ Optimize My Usage"):
             with st.spinner("Analyzing your energy profile..."):
-                result = generate_recommendation(devices, rates, computed)
+                result = generate_recommendation(data)
                 st.session_state.ai_result = result
 
         if st.session_state.ai_result:
@@ -886,6 +770,6 @@ with tab5:
     if st.button("Send") and question:
         st.session_state.chat_history.append({"role": "user", "content": question})
         with st.spinner("Thinking..."):
-            answer = ask_question(question, devices, rates, computed)
+            answer = ask_question(question, data)
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         st.rerun()
