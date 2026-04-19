@@ -263,40 +263,23 @@ def get_devices(user_id):
     return devices
 
 
-def _default_tou_rates():
-    """Realistic TOU curve used when no rates are found in the DB."""
+def get_rates():
+    """
+    Returns a realistic time-of-use rate curve.
+    Cheap overnight, moderate midday, expensive evening peak.
+    """
     base = 0.12
     multipliers = [
-        (range(0, 6),  0.80),
-        (range(6, 9),  1.10),
-        (range(9, 16), 1.20),
-        (range(16, 21), 1.50),
-        (range(21, 24), 0.90),
+        (range(0, 6),   0.80),   # overnight cheap
+        (range(6, 9),   1.10),   # morning ramp
+        (range(9, 16),  1.20),   # midday
+        (range(16, 21), 1.50),   # evening peak
+        (range(21, 24), 0.90),   # late night
     ]
     rates = []
     for h in range(24):
         mult = next((m for r, m in multipliers if h in r), 1.0)
         rates.append({"hour": h, "cost_per_kwh": round(base * mult, 4)})
-    return rates
-
-
-def get_rates(zip_code="13037"):
-    df = run_query(
-        "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates "
-        "WHERE zip_code = %s ORDER BY hour",
-        params=(zip_code,)
-    )
-    if df.empty:
-        return _default_tou_rates()
-    rate_lookup = {}
-    for _, row in df.iterrows():
-        rate_lookup[int(row["HOUR"])] = float(row["COST_PER_KWH"])
-    rates = []
-    last_rate = 0.12
-    for h in range(24):
-        if h in rate_lookup:
-            last_rate = rate_lookup[h]
-        rates.append({"hour": h, "cost_per_kwh": last_rate})
     return rates
 
 
