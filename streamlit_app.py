@@ -16,6 +16,119 @@ st.set_page_config(
 )
 
 # -----------------------------------------
+# DEVICE DEFAULTS
+# Smart lookup: name -> (watts, hours_on, hours_idle)
+# Seasonal appliances get flagged separately
+# -----------------------------------------
+DEVICE_DEFAULTS = {
+    # Kitchen
+    "refrigerator":        (150,  24,  0),
+    "fridge":              (150,  24,  0),
+    "microwave":           (1200, 0.5, 0),
+    "dishwasher":          (1800, 1.5, 0),
+    "oven":                (2400, 1.0, 0),
+    "stove":               (1500, 1.0, 0),
+    "coffee maker":        (800,  0.5, 0),
+    "toaster":             (900,  0.2, 0),
+    "toaster oven":        (1200, 0.5, 0),
+    "kettle":              (1500, 0.3, 0),
+    # Laundry
+    "washer":              (500,  1.0, 0),
+    "washing machine":     (500,  1.0, 0),
+    "dryer":               (5000, 1.0, 0),
+    "clothes dryer":       (5000, 1.0, 0),
+    # Lighting
+    "led light":           (10,   6,  18),
+    "led lights":          (10,   6,  18),
+    "led bulb":            (10,   6,  18),
+    "light":               (60,   6,  18),
+    "lights":              (60,   6,  18),
+    "lamp":                (60,   5,  19),
+    "ceiling light":       (60,   6,  18),
+    "ceiling fan":         (75,   6,  18),
+    # Entertainment
+    "tv":                  (100,  4,  20),
+    "television":          (100,  4,  20),
+    "monitor":             (30,   8,  16),
+    "gaming pc":           (400,  4,  20),
+    "desktop pc":          (300,  6,  18),
+    "desktop":             (300,  6,  18),
+    "laptop":              (60,   6,  18),
+    "xbox":                (120,  3,  21),
+    "playstation":         (120,  3,  21),
+    "ps5":                 (200,  3,  21),
+    "ps4":                 (140,  3,  21),
+    "nintendo switch":     (18,   3,  21),
+    "router":              (10,   24,  0),
+    "modem":               (10,   24,  0),
+    # Climate — seasonal (handled specially in projection)
+    "air conditioner":     (1500, 8,  16),
+    "ac":                  (1500, 8,  16),
+    "window ac":           (1200, 8,  16),
+    "central ac":          (3500, 8,  16),
+    "heater":              (1500, 8,  16),
+    "space heater":        (1500, 8,  16),
+    "electric heater":     (1500, 8,  16),
+    "furnace":             (600,  8,  16),
+    "heat pump":           (1000, 8,  16),
+    "electric furnace":    (10000,8,  16),
+    # Water
+    "water heater":        (4000, 3,  21),
+    "electric water heater":(4000,3,  21),
+    # Other
+    "vacuum":              (1400, 0.5, 0),
+    "hair dryer":          (1875, 0.3, 0),
+    "phone charger":       (5,    8,  16),
+    "tablet charger":      (10,   6,  18),
+    "electric blanket":    (200,  6,  18),
+    "dehumidifier":        (280,  6,  18),
+    "humidifier":          (50,   8,  16),
+    "pool pump":           (1500, 8,  16),
+    "hot tub":             (3000, 2,  22),
+    "garage door opener":  (350,  0.1, 0),
+    "security camera":     (15,   24,  0),
+    "smart speaker":       (3,    24,  0),
+    "alexa":               (3,    24,  0),
+    "google home":         (3,    24,  0),
+    "printer":             (30,   0.5, 0),
+}
+
+# Seasonal appliances: months they are ACTIVE (1=Jan, 12=Dec)
+SEASONAL_MONTHS = {
+    "air conditioner":      [6, 7, 8, 9],
+    "ac":                   [6, 7, 8, 9],
+    "window ac":            [6, 7, 8, 9],
+    "central ac":           [6, 7, 8, 9],
+    "heater":               [11, 12, 1, 2, 3],
+    "space heater":         [11, 12, 1, 2, 3],
+    "electric heater":      [11, 12, 1, 2, 3],
+    "furnace":              [11, 12, 1, 2, 3],
+    "heat pump":            [11, 12, 1, 2, 3],
+    "electric furnace":     [11, 12, 1, 2, 3],
+    "pool pump":            [5, 6, 7, 8, 9],
+}
+
+MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+def get_device_defaults(name: str):
+    key = name.strip().lower()
+    if key in DEVICE_DEFAULTS:
+        return DEVICE_DEFAULTS[key]
+    # partial match
+    for k, v in DEVICE_DEFAULTS.items():
+        if k in key or key in k:
+            return v
+    return (100, 2, 22)  # generic fallback
+
+def is_seasonal(name: str):
+    key = name.strip().lower()
+    return key in SEASONAL_MONTHS
+
+def get_active_months(name: str):
+    key = name.strip().lower()
+    return SEASONAL_MONTHS.get(key, list(range(1, 13)))
+
+# -----------------------------------------
 # STYLES
 # -----------------------------------------
 st.markdown("""
@@ -110,13 +223,7 @@ html, body, [class*="css"] {
     padding: 1.4rem 1.6rem;
     height: 100%;
 }
-.metric-value {
-    font-family: 'Space Mono', monospace;
-    font-size: 2rem;
-    font-weight: 700;
-    color: #E8EDF5;
-    line-height: 1.1;
-}
+.metric-value { font-family: 'Space Mono', monospace; font-size: 2rem; font-weight: 700; color: #E8EDF5; line-height: 1.1; }
 .metric-unit { font-size: 0.85rem; color: #4A6080; font-family: 'Space Mono', monospace; }
 .metric-label { font-size: 0.75rem; color: #4A6080; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 0.3rem; }
 .metric-sub { font-size: 0.7rem; color: #2A3A50; margin-top: 0.2rem; font-family: 'Space Mono', monospace; }
@@ -164,19 +271,9 @@ html, body, [class*="css"] {
     z-index: 10;
     border: 1px solid #2A3A50;
 }
-.hour-bar {
-    width: 100%;
-    border-radius: 3px 3px 0 0;
-    transition: opacity 0.15s;
-}
+.hour-bar { width: 100%; border-radius: 3px 3px 0 0; transition: opacity 0.15s; }
 .hour-bar-wrap:hover .hour-bar { opacity: 0.75; }
-.hour-label {
-    font-size: 0.48rem;
-    font-family: 'Space Mono', monospace;
-    color: #4A6080;
-    text-align: center;
-    margin-top: 3px;
-}
+.hour-label { font-size: 0.48rem; font-family: 'Space Mono', monospace; color: #4A6080; text-align: center; margin-top: 3px; }
 
 .device-row {
     display: grid;
@@ -192,99 +289,52 @@ html, body, [class*="css"] {
 .device-cost { font-family: 'Space Mono', monospace; font-size: 0.85rem; color: #00FF94; }
 
 .rec-card {
-    background: #0D1520;
-    border: 1px solid #1E2A3A;
-    border-left: 3px solid #00D4FF;
-    border-radius: 8px;
-    padding: 1rem 1.2rem;
-    margin-bottom: 0.6rem;
-    font-size: 0.9rem;
-    color: #C0D0E0;
-    line-height: 1.5;
+    background: #0D1520; border: 1px solid #1E2A3A; border-left: 3px solid #00D4FF;
+    border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 0.6rem;
+    font-size: 0.9rem; color: #C0D0E0; line-height: 1.5;
 }
 .insight-card {
-    background: #0D1520;
-    border: 1px solid #1E2A3A;
-    border-left: 3px solid #00FF94;
-    border-radius: 8px;
-    padding: 1rem 1.2rem;
-    margin-bottom: 0.6rem;
-    font-size: 0.9rem;
-    color: #C0D0E0;
-    line-height: 1.5;
+    background: #0D1520; border: 1px solid #1E2A3A; border-left: 3px solid #00FF94;
+    border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 0.6rem;
+    font-size: 0.9rem; color: #C0D0E0; line-height: 1.5;
 }
-
 .phantom-bar-bg { width: 100%; height: 8px; background: #1E2A3A; border-radius: 4px; margin-top: 0.5rem; }
 .phantom-bar-fill { height: 8px; border-radius: 4px; background: linear-gradient(90deg, #FF6B35, #FF3366); }
 
 .chat-bubble-user {
-    background: #1E2A3A;
-    border-radius: 12px 12px 2px 12px;
-    padding: 0.8rem 1.1rem;
-    margin: 0.5rem 0;
-    font-size: 0.9rem;
-    color: #E8EDF5;
-    max-width: 80%;
-    margin-left: auto;
+    background: #1E2A3A; border-radius: 12px 12px 2px 12px;
+    padding: 0.8rem 1.1rem; margin: 0.5rem 0; font-size: 0.9rem;
+    color: #E8EDF5; max-width: 80%; margin-left: auto;
 }
 .chat-bubble-ai {
-    background: #0D1A2E;
-    border: 1px solid #1E2A3A;
-    border-radius: 12px 12px 12px 2px;
-    padding: 0.8rem 1.1rem;
-    margin: 0.5rem 0;
-    font-size: 0.9rem;
-    color: #C0D0E0;
-    max-width: 80%;
-    line-height: 1.5;
+    background: #0D1A2E; border: 1px solid #1E2A3A; border-radius: 12px 12px 12px 2px;
+    padding: 0.8rem 1.1rem; margin: 0.5rem 0; font-size: 0.9rem;
+    color: #C0D0E0; max-width: 80%; line-height: 1.5;
 }
-
-.proj-bar-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.proj-month { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: #4A6080; width: 30px; }
-.proj-bar-bg { flex: 1; height: 10px; background: #1E2A3A; border-radius: 5px; overflow: hidden; }
-.proj-bar-fill { height: 10px; border-radius: 5px; background: linear-gradient(90deg, #0066FF, #00D4FF); }
-.proj-val { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: #00D4FF; width: 45px; text-align: right; }
 
 .stButton > button {
     background: linear-gradient(135deg, #0066FF, #00D4FF);
-    color: #080C12;
-    font-family: 'Syne', sans-serif;
-    font-weight: 700;
-    border: none;
-    border-radius: 8px;
-    padding: 0.5rem 1.5rem;
-    font-size: 0.9rem;
-    letter-spacing: 0.05em;
+    color: #080C12; font-family: 'Syne', sans-serif; font-weight: 700;
+    border: none; border-radius: 8px; padding: 0.5rem 1.5rem;
+    font-size: 0.9rem; letter-spacing: 0.05em;
 }
 .stButton > button:hover { opacity: 0.85; }
 .stTextInput > div > div > input {
-    background: #0D1520;
-    border: 1px solid #1E2A3A;
-    border-radius: 8px;
-    color: #E8EDF5;
-    font-family: 'Space Mono', monospace;
-    font-size: 0.85rem;
+    background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px;
+    color: #E8EDF5; font-family: 'Space Mono', monospace; font-size: 0.85rem;
 }
 .stNumberInput > div > div > input {
-    background: #0D1520;
-    border: 1px solid #1E2A3A;
-    border-radius: 8px;
-    color: #E8EDF5;
-    font-family: 'Space Mono', monospace;
+    background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px;
+    color: #E8EDF5; font-family: 'Space Mono', monospace;
 }
-.stSelectbox > div > div {
-    background: #0D1520;
-    border: 1px solid #1E2A3A;
-    border-radius: 8px;
-    color: #E8EDF5;
-}
+.stSelectbox > div > div { background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px; color: #E8EDF5; }
 div[data-testid="stTab"] button { font-family: 'Syne', sans-serif; font-weight: 600; color: #4A6080; }
 div[data-testid="stTab"] button[aria-selected="true"] { color: #00D4FF; border-bottom-color: #00D4FF; }
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------
-# SNOWFLAKE CONNECTION
+# SNOWFLAKE
 # -----------------------------------------
 @st.cache_resource
 def get_snowflake_connection():
@@ -299,10 +349,7 @@ def get_snowflake_connection():
 def run_query(query, params=None):
     conn = get_snowflake_connection()
     cursor = conn.cursor()
-    if params:
-        cursor.execute(query, params)
-    else:
-        cursor.execute(query)
+    cursor.execute(query, params) if params else cursor.execute(query)
     columns = [col[0] for col in cursor.description]
     rows = cursor.fetchall()
     cursor.close()
@@ -311,19 +358,13 @@ def run_query(query, params=None):
 def run_write(query, params=None):
     conn = get_snowflake_connection()
     cursor = conn.cursor()
-    if params:
-        cursor.execute(query, params)
-    else:
-        cursor.execute(query)
+    cursor.execute(query, params) if params else cursor.execute(query)
     conn.commit()
     cursor.close()
 
 # -----------------------------------------
 # DATA FUNCTIONS
 # -----------------------------------------
-def get_users():
-    return run_query("SELECT user_id, zip_code FROM POWERPILOT.MAIN.users")
-
 def get_devices(user_id):
     df = run_query(
         "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = %s",
@@ -349,10 +390,10 @@ def get_devices(user_id):
         devices.append(device)
     return devices
 
-def get_rates(zip_code):
+def get_rates():
     df = run_query(
         "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates WHERE zip_code = %s ORDER BY hour",
-        params=(zip_code,)
+        params=("13037",)
     )
     rate_lookup = {}
     for _, row in df.iterrows():
@@ -380,13 +421,21 @@ def delete_device_from_db(user_id, device_name):
 # -----------------------------------------
 # OPTIMIZER
 # -----------------------------------------
-def compute_energy_results(data):
-    devices = data.get("devices", [])
-    rates = data.get("energy_rates", [])
-    avg_rate = sum(r["cost_per_kwh"] for r in rates) / len(rates) if rates else 0.12
+def compute_energy_results(devices, rates):
+    if not devices:
+        return {
+            "summary": {"total_kwh_per_day": 0, "total_cost_per_month": 0},
+            "breakdown": [],
+            "optimization": {"best_hours": [], "worst_hours": [], "potential_savings_percent": 0, "potential_monthly_savings_dollars": 0},
+            "phantom_load": {"total_watts": 0, "daily_kwh": 0, "percentage_of_total": 0},
+            "power_score": 0,
+            "monthly_projection": {m: 0 for m in MONTH_NAMES},
+        }
 
+    avg_rate = sum(r["cost_per_kwh"] for r in rates) / len(rates) if rates else 0.12
     breakdown = []
     total_kwh = 0.0
+
     for device in devices:
         on_watts = device.get("power_on_watts", 0)
         idle_watts = device.get("power_idle_watts", on_watts * 0.05)
@@ -411,11 +460,10 @@ def compute_energy_results(data):
     potential_savings = round(total_cost_per_month * savings_pct / 100, 2)
 
     phantom_watts = sum(
-        device.get("power_on_watts", 0) * 0.05 * device.get("hours_idle_per_day", 0)
-        for device in devices
+        d.get("power_on_watts", 0) * 0.05 * d.get("hours_idle_per_day", 0) for d in devices
     )
     phantom_kwh = round(phantom_watts / 1000, 3)
-    phantom_pct = round(phantom_kwh / total_kwh * 100) if (total_kwh and total_kwh == total_kwh) else 0
+    phantom_pct = round(phantom_kwh / total_kwh * 100) if total_kwh else 0
 
     worst_set = set(worst_hours)
     total_on_hours = sum(d.get("hours_on_per_day", 0) for d in devices)
@@ -425,15 +473,23 @@ def compute_energy_results(data):
     off_peak_bonus = round(min(20, savings_pct * 0.2))
     power_score = max(0, min(100, 100 - peak_usage_penalty - inefficiency_penalty + off_peak_bonus))
 
-    monthly_multipliers = {
-        "Jan": 1.15, "Feb": 1.10, "Mar": 1.00, "Apr": 0.95,
-        "May": 0.92, "Jun": 1.05, "Jul": 1.20, "Aug": 1.18,
-        "Sep": 1.05, "Oct": 0.95, "Nov": 1.00, "Dec": 1.12
-    }
-    monthly_projection = {
-        month: round(total_cost_per_month * mult, 2)
-        for month, mult in monthly_multipliers.items()
-    }
+    # Monthly projection — accounts for seasonal devices
+    monthly_projection = {}
+    for i, month in enumerate(MONTH_NAMES):
+        month_num = i + 1
+        month_kwh = 0.0
+        for device in devices:
+            name_key = device["device_name"].strip().lower()
+            active_months = get_active_months(name_key)
+            if month_num not in active_months:
+                continue  # seasonal device not active this month
+            on_watts = device.get("power_on_watts", 0)
+            idle_watts = device.get("power_idle_watts", on_watts * 0.05)
+            hours_on = device.get("hours_on_per_day", 0)
+            hours_idle = device.get("hours_idle_per_day", 0)
+            kwh_per_day = (on_watts * hours_on + idle_watts * hours_idle) / 1000
+            month_kwh += kwh_per_day
+        monthly_projection[month] = round(month_kwh * 30 * avg_rate, 2)
 
     return {
         "summary": {"total_kwh_per_day": round(total_kwh, 3), "total_cost_per_month": total_cost_per_month},
@@ -457,23 +513,21 @@ def call_groq(prompt, max_tokens=1024):
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": "llama-3.3-70b-versatile", "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]},
+        json={"model": "llama-3.3-70b-versatile", "max_tokens": max_tokens,
+              "messages": [{"role": "user", "content": prompt}]},
         timeout=30,
     )
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-def generate_recommendation(data):
-    devices = data.get("devices", [])
-    rates = data.get("energy_rates", [])
-    results = data.get("computed_results", {})
-    power_score = results.get("power_score", 50)
+def generate_recommendation(devices, rates, computed):
+    power_score = computed.get("power_score", 50)
     prompt = f"""You are an energy optimization AI. Analyze this user's energy data and return recommendations.
 Devices: {json.dumps(devices)}
 Rates: {json.dumps(rates)}
-Summary: {json.dumps(results)}
-PowerScore is {power_score}/100. Return ONLY a JSON object:
-{{"current_energy_score":{power_score},"new_energy_score":<int higher than {power_score}>,"recommendations":["<tip>","<tip>","<tip>"],"estimated_monthly_savings":<float>,"insights":["<insight>","<insight>"],"best_usage_hours":[<ints>],"worst_usage_hours":[<ints>]}}"""
+Summary: {json.dumps(computed)}
+PowerScore is {power_score}/100. Return ONLY a JSON object, no extra text:
+{{"current_energy_score":{power_score},"new_energy_score":<int higher than {power_score} max 100>,"recommendations":["<tip>","<tip>","<tip>"],"estimated_monthly_savings":<float>,"insights":["<insight>","<insight>"],"best_usage_hours":[<ints 0-23>],"worst_usage_hours":[<ints 0-23>]}}"""
     raw = call_groq(prompt, max_tokens=1024)
     try:
         if "```json" in raw:
@@ -484,13 +538,13 @@ PowerScore is {power_score}/100. Return ONLY a JSON object:
     except Exception:
         return {"error": "Failed to parse AI response"}
 
-def ask_question(question, data):
+def ask_question(question, devices, rates, computed):
     prompt = f"""You are PowerPilot, a friendly home energy advisor.
-Devices: {json.dumps(data.get('devices', []))}
-Rates: {json.dumps(data.get('energy_rates', []))}
-Summary: {json.dumps(data.get('computed_results', {}))}
+Devices: {json.dumps(devices)}
+Rates: {json.dumps(rates)}
+Summary: {json.dumps(computed)}
 User asks: "{question}"
-Answer in 2-4 sentences. Be specific, friendly, no jargon."""
+Answer in 2-4 sentences. Be specific, friendly, practical. No jargon."""
     return call_groq(prompt, max_tokens=512)
 
 # -----------------------------------------
@@ -502,6 +556,26 @@ if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
 if "refresh_devices" not in st.session_state:
     st.session_state.refresh_devices = 0
+if "device_name_input" not in st.session_state:
+    st.session_state.device_name_input = ""
+if "suggested_watts" not in st.session_state:
+    st.session_state.suggested_watts = 100
+if "suggested_on" not in st.session_state:
+    st.session_state.suggested_on = 2.0
+if "suggested_idle" not in st.session_state:
+    st.session_state.suggested_idle = 22.0
+
+USER_ID = "u1"
+
+# -----------------------------------------
+# LOAD DATA
+# -----------------------------------------
+with st.spinner("Loading your energy profile..."):
+    _ = st.session_state.refresh_devices
+    devices = get_devices(USER_ID)
+    rates = get_rates()
+
+computed = compute_energy_results(devices, rates)
 
 # -----------------------------------------
 # HEADER
@@ -515,32 +589,6 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
-# -----------------------------------------
-# USER SELECTOR
-# -----------------------------------------
-with st.spinner("Loading your energy profile..."):
-    users_df = get_users()
-
-user_ids = users_df["USER_ID"].tolist()
-user_labels = {uid: f"Home {i+1}" for i, uid in enumerate(user_ids)}
-
-col_user, col_spacer = st.columns([1, 3])
-with col_user:
-    selected_label = st.selectbox("Viewing profile for", options=list(user_labels.values()))
-selected_user = [k for k, v in user_labels.items() if v == selected_label][0]
-
-zip_row = users_df[users_df["USER_ID"] == selected_user].iloc[0]
-zip_code = zip_row["ZIP_CODE"]
-
-with st.spinner("Fetching devices and rates..."):
-    _ = st.session_state.refresh_devices
-    devices = get_devices(selected_user)
-    rates = get_rates(zip_code)
-
-data = {"user_id": selected_user, "devices": devices, "energy_rates": rates}
-computed = compute_energy_results(data)
-data["computed_results"] = computed
 
 # -----------------------------------------
 # TOP METRICS
@@ -625,7 +673,6 @@ with tab1:
             <div class="hour-bar" style="background:{color};height:{height_pct}%;"></div>
         </div>"""
     bars_html += "</div>"
-
     labels_html = '<div style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;margin-top:4px;">'
     for h in range(24):
         labels_html += f'<div class="hour-label">{h:02d}</div>'
@@ -650,14 +697,14 @@ with tab1:
         st.markdown(f"""
         <div class="metric-card" style="margin-top:1rem;">
             <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Best Hours to Run Devices</div>
-            <div style="font-family:Space Mono,monospace;font-size:1.1rem;color:#00FF94;margin-top:0.5rem;">{", ".join(f"{h:02d}:00" for h in sorted(best_hours))}</div>
+            <div style="font-family:Space Mono,monospace;font-size:1.1rem;color:#00FF94;margin-top:0.5rem;">{", ".join(f"{h:02d}:00" for h in sorted(best_hours)) or "—"}</div>
         </div>
         """, unsafe_allow_html=True)
     with col_b:
         st.markdown(f"""
         <div class="metric-card" style="margin-top:1rem;">
             <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Avoid These Hours</div>
-            <div style="font-family:Space Mono,monospace;font-size:1.1rem;color:#FF3366;margin-top:0.5rem;">{", ".join(f"{h:02d}:00" for h in sorted(worst_hours))}</div>
+            <div style="font-family:Space Mono,monospace;font-size:1.1rem;color:#FF3366;margin-top:0.5rem;">{", ".join(f"{h:02d}:00" for h in sorted(worst_hours)) or "—"}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -678,39 +725,64 @@ with tab2:
     st.markdown('<div class="section-header">Device Breakdown <div class="section-line"></div></div>', unsafe_allow_html=True)
     breakdown = computed["breakdown"]
 
-    st.markdown("""
-    <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;overflow:hidden;">
-        <div class="device-row device-row-header">
-            <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Share</div>
-        </div>
-    """, unsafe_allow_html=True)
-    for item in breakdown:
-        share = round(item["kwh_per_day"] / total_kwh * 100) if total_kwh else 0
-        st.markdown(f"""
-        <div class="device-row">
-            <div class="device-name">{item['device_name']}</div>
-            <div class="device-val">{item['kwh_per_day']}</div>
-            <div class="device-cost">${item['cost_per_month']}</div>
-            <div class="device-val">{share}%</div>
-        </div>
+    if not breakdown:
+        st.info("No devices added yet. Add your first device below.")
+    else:
+        st.markdown("""
+        <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;overflow:hidden;">
+            <div class="device-row device-row-header">
+                <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Share</div>
+            </div>
         """, unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+        for item in breakdown:
+            share = round(item["kwh_per_day"] / total_kwh * 100) if total_kwh else 0
+            st.markdown(f"""
+            <div class="device-row">
+                <div class="device-name">{item['device_name']}</div>
+                <div class="device-val">{item['kwh_per_day']}</div>
+                <div class="device-cost">${item['cost_per_month']}</div>
+                <div class="device-val">{share}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
+    # Add device form with smart defaults
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>', unsafe_allow_html=True)
+
+    name_col, lookup_col = st.columns([3, 1])
+    with name_col:
+        new_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...")
+    with lookup_col:
+        st.markdown("<br>", unsafe_allow_html=True)
+        lookup_clicked = st.button("⚡ Auto-fill")
+
+    if lookup_clicked and new_name:
+        w, on, idle = get_device_defaults(new_name)
+        st.session_state.suggested_watts = w
+        st.session_state.suggested_on = float(on)
+        st.session_state.suggested_idle = float(idle)
+        seasonal_note = ""
+        if is_seasonal(new_name):
+            active = get_active_months(new_name.strip().lower())
+            month_labels = [MONTH_NAMES[m-1] for m in active]
+            seasonal_note = f" · Seasonal: active in {', '.join(month_labels)}"
+        st.success(f"Auto-filled defaults for {new_name} — {st.session_state.suggested_watts}W{seasonal_note}")
+
     with st.form("add_device_form", clear_on_submit=True):
-        fc1, fc2, fc3, fc4 = st.columns(4)
+        fc1, fc2, fc3 = st.columns(3)
         with fc1:
-            new_name = st.text_input("Device Name", placeholder="e.g. Dishwasher")
+            new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=st.session_state.suggested_watts)
         with fc2:
-            new_watts = st.number_input("Power (watts)", min_value=1, max_value=10000, value=100)
+            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=st.session_state.suggested_on, step=0.5)
         with fc3:
-            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=1.0, step=0.5)
-        with fc4:
-            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=23.0, step=0.5)
+            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=st.session_state.suggested_idle, step=0.5)
         submitted = st.form_submit_button("⚡ Add Device")
         if submitted and new_name:
-            add_device_to_db(selected_user, new_name, new_watts, new_hours_on, new_hours_idle)
+            add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
             st.session_state.refresh_devices += 1
+            st.session_state.suggested_watts = 100
+            st.session_state.suggested_on = 2.0
+            st.session_state.suggested_idle = 22.0
             st.success(f"Added {new_name}!")
             st.rerun()
 
@@ -722,42 +794,86 @@ with tab2:
         with col_del2:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Remove"):
-                delete_device_from_db(selected_user, to_delete)
+                delete_device_from_db(USER_ID, to_delete)
                 st.session_state.refresh_devices += 1
                 st.success(f"Removed {to_delete}")
                 st.rerun()
 
-# ── TAB 3: MONTHLY PROJECTION ──
+# ── TAB 3: MONTHLY PROJECTION (LINE CHART) ──
 with tab3:
     st.markdown('<div class="section-header">12-Month Cost Projection <div class="section-line"></div></div>', unsafe_allow_html=True)
     projection = computed["monthly_projection"]
-    max_proj = max(projection.values()) if projection else 1
-
-    proj_html = ""
-    for month, cost in projection.items():
-        bar_pct = int((cost / max_proj) * 100)
-        proj_html += f"""
-        <div class="proj-bar-wrap">
-            <div class="proj-month">{month}</div>
-            <div class="proj-bar-bg"><div class="proj-bar-fill" style="width:{bar_pct}%"></div></div>
-            <div class="proj-val">${cost}</div>
-        </div>"""
-
     annual_total = round(sum(projection.values()), 2)
     annual_savings = round(annual_total * computed["optimization"]["potential_savings_percent"] / 100, 2)
 
-    col_p1, col_p2 = st.columns([2, 1])
+    col_p1, col_p2 = st.columns([2.5, 1])
     with col_p1:
-        st.markdown(f"""
-        <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.5rem;">
-            <div style="font-size:0.7rem;color:#4A6080;font-family:Space Mono,monospace;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1rem;">
-                Estimated monthly cost — based on seasonal usage patterns
-            </div>
-            {proj_html}
-        </div>
-        """, unsafe_allow_html=True)
+        if all(v == 0 for v in projection.values()):
+            st.info("Add devices to see your monthly projection.")
+        else:
+            proj_df = pd.DataFrame({
+                "Month": list(projection.keys()),
+                "Cost ($)": list(projection.values()),
+            })
+            proj_df["Month"] = pd.Categorical(proj_df["Month"], categories=MONTH_NAMES, ordered=True)
+            proj_df = proj_df.sort_values("Month")
+
+            # Build SVG line chart
+            months = list(proj_df["Month"])
+            costs = list(proj_df["Cost ($)"])
+            max_cost = max(costs) if max(costs) > 0 else 1
+            min_cost = min(costs)
+            chart_w, chart_h = 700, 260
+            pad_l, pad_r, pad_t, pad_b = 55, 20, 20, 40
+
+            def cx(i):
+                return pad_l + i * (chart_w - pad_l - pad_r) / (len(months) - 1)
+            def cy(v):
+                return pad_t + (1 - (v - min_cost) / (max_cost - min_cost + 0.01)) * (chart_h - pad_t - pad_b)
+
+            points = " ".join(f"{cx(i)},{cy(c)}" for i, c in enumerate(costs))
+            fill_points = f"{cx(0)},{chart_h - pad_b} " + points + f" {cx(len(costs)-1)},{chart_h - pad_b}"
+
+            # y-axis ticks
+            y_ticks = ""
+            for tick in [min_cost, (min_cost+max_cost)/2, max_cost]:
+                y = cy(tick)
+                y_ticks += f'<line x1="{pad_l}" y1="{y}" x2="{chart_w - pad_r}" y2="{y}" stroke="#1E2A3A" stroke-width="1"/>'
+                y_ticks += f'<text x="{pad_l - 5}" y="{y + 4}" text-anchor="end" fill="#4A6080" font-size="9" font-family="Space Mono">${tick:.0f}</text>'
+
+            # month labels + dots
+            labels_svg = ""
+            dots_svg = ""
+            for i, (m, c) in enumerate(zip(months, costs)):
+                x, y = cx(i), cy(c)
+                labels_svg += f'<text x="{x}" y="{chart_h - pad_b + 14}" text-anchor="middle" fill="#4A6080" font-size="9" font-family="Space Mono">{m}</text>'
+                dots_svg += f'<circle cx="{x}" cy="{y}" r="4" fill="#00D4FF" stroke="#080C12" stroke-width="2"/>'
+                dots_svg += f'<title>{m}: ${c}</title>'
+
+            svg = f"""
+            <svg viewBox="0 0 {chart_w} {chart_h}" xmlns="http://www.w3.org/2000/svg" style="width:100%;background:#0D1520;border-radius:12px;border:1px solid #1E2A3A;">
+                {y_ticks}
+                <polyline points="{fill_points}" fill="url(#lineGrad)" opacity="0.18"/>
+                <polyline points="{points}" fill="none" stroke="url(#strokeGrad)" stroke-width="2.5" stroke-linejoin="round"/>
+                {labels_svg}
+                {dots_svg}
+                <defs>
+                    <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#00D4FF"/>
+                        <stop offset="100%" stop-color="#0D1520"/>
+                    </linearGradient>
+                    <linearGradient id="strokeGrad" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stop-color="#0066FF"/>
+                        <stop offset="100%" stop-color="#00D4FF"/>
+                    </linearGradient>
+                </defs>
+            </svg>"""
+            st.markdown(svg, unsafe_allow_html=True)
+            st.markdown('<div style="font-size:0.65rem;color:#2A3A50;font-family:Space Mono,monospace;margin-top:0.4rem;">Seasonal appliances (AC, heating) are only counted in their active months.</div>', unsafe_allow_html=True)
+
     with col_p2:
-        peak_month = max(projection, key=projection.get)
+        peak_month = max(projection, key=projection.get) if any(v > 0 for v in projection.values()) else "—"
+        peak_val = projection.get(peak_month, 0)
         st.markdown(f"""
         <div class="metric-card">
             <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Annual Total</div>
@@ -769,46 +885,49 @@ with tab3:
         </div>
         <div class="metric-card" style="margin-top:1rem;">
             <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Peak Month</div>
-            <div style="font-family:Space Mono,monospace;font-size:1.4rem;color:#FF6B35;margin-top:0.4rem;">{peak_month} — ${projection[peak_month]}</div>
+            <div style="font-family:Space Mono,monospace;font-size:1.4rem;color:#FF6B35;margin-top:0.4rem;">{peak_month} — ${peak_val}</div>
         </div>
         """, unsafe_allow_html=True)
 
 # ── TAB 4: AI ADVISOR ──
 with tab4:
     st.markdown('<div class="section-header">AI Recommendations <div class="section-line"></div></div>', unsafe_allow_html=True)
-    if st.button("⚡ Optimize My Usage"):
-        with st.spinner("Analyzing your energy profile..."):
-            result = generate_recommendation(data)
-            st.session_state.ai_result = result
+    if not devices:
+        st.info("Add devices first to get AI recommendations.")
+    else:
+        if st.button("⚡ Optimize My Usage"):
+            with st.spinner("Analyzing your energy profile..."):
+                result = generate_recommendation(devices, rates, computed)
+                st.session_state.ai_result = result
 
-    if st.session_state.ai_result:
-        result = st.session_state.ai_result
-        if "error" not in result:
-            new_score = result.get("new_energy_score", power_score)
-            monthly_savings = result.get("estimated_monthly_savings", 0)
-            col_x, col_y = st.columns(2)
-            with col_x:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Score After Optimizing</div>
-                    <div style="font-family:Space Mono,monospace;font-size:2rem;color:#00D4FF;margin-top:0.3rem;">{power_score} → {new_score}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with col_y:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Est. Monthly Savings</div>
-                    <div style="font-family:Space Mono,monospace;font-size:2rem;color:#00FF94;margin-top:0.3rem;">${monthly_savings}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            st.markdown('<div style="margin-top:1.5rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Recommendations</div>', unsafe_allow_html=True)
-            for rec in result.get("recommendations", []):
-                st.markdown(f'<div class="rec-card">→ {rec}</div>', unsafe_allow_html=True)
-            st.markdown('<div style="margin-top:1rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Insights</div>', unsafe_allow_html=True)
-            for insight in result.get("insights", []):
-                st.markdown(f'<div class="insight-card">◆ {insight}</div>', unsafe_allow_html=True)
-        else:
-            st.error("AI response error. Check your Groq API key in secrets.")
+        if st.session_state.ai_result:
+            result = st.session_state.ai_result
+            if "error" not in result:
+                new_score = result.get("new_energy_score", power_score)
+                monthly_savings = result.get("estimated_monthly_savings", 0)
+                col_x, col_y = st.columns(2)
+                with col_x:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Score After Optimizing</div>
+                        <div style="font-family:Space Mono,monospace;font-size:2rem;color:#00D4FF;margin-top:0.3rem;">{power_score} → {new_score}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_y:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Est. Monthly Savings</div>
+                        <div style="font-family:Space Mono,monospace;font-size:2rem;color:#00FF94;margin-top:0.3rem;">${monthly_savings}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.markdown('<div style="margin-top:1.5rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Recommendations</div>', unsafe_allow_html=True)
+                for rec in result.get("recommendations", []):
+                    st.markdown(f'<div class="rec-card">→ {rec}</div>', unsafe_allow_html=True)
+                st.markdown('<div style="margin-top:1rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Insights</div>', unsafe_allow_html=True)
+                for insight in result.get("insights", []):
+                    st.markdown(f'<div class="insight-card">◆ {insight}</div>', unsafe_allow_html=True)
+            else:
+                st.error("AI response error. Check your Groq API key in secrets.")
 
 # ── TAB 5: CHAT ──
 with tab5:
@@ -823,6 +942,6 @@ with tab5:
     if st.button("Send") and question:
         st.session_state.chat_history.append({"role": "user", "content": question})
         with st.spinner("Thinking..."):
-            answer = ask_question(question, data)
+            answer = ask_question(question, devices, rates, computed)
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         st.rerun()
