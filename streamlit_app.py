@@ -3,10 +3,11 @@ import snowflake.connector
 import json
 import os
 import requests
+import pandas as pd
 
-# ─────────────────────────────────────────
+# -----------------------------------------
 # PAGE CONFIG
-# ─────────────────────────────────────────
+# -----------------------------------------
 st.set_page_config(
     page_title="PowerPilot",
     page_icon="⚡",
@@ -14,9 +15,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ─────────────────────────────────────────
+# -----------------------------------------
 # STYLES
-# ─────────────────────────────────────────
+# -----------------------------------------
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
@@ -26,21 +27,17 @@ html, body, [class*="css"] {
     color: #E8EDF5;
     font-family: 'Syne', sans-serif;
 }
-
 .main { background-color: #080C12; }
 
-/* Header */
 .pilot-header {
     display: flex;
     align-items: center;
     gap: 14px;
     padding: 2rem 0 1rem 0;
     border-bottom: 1px solid #1E2A3A;
-    margin-bottom: 2rem;
+    margin-bottom: 0.5rem;
 }
-.pilot-logo {
-    font-size: 2.4rem;
-}
+.pilot-logo { font-size: 2.4rem; }
 .pilot-title {
     font-family: 'Syne', sans-serif;
     font-weight: 800;
@@ -49,14 +46,22 @@ html, body, [class*="css"] {
     letter-spacing: -0.02em;
     margin: 0;
 }
-.pilot-sub {
-    font-size: 0.85rem;
+.pilot-tagline {
+    font-size: 0.82rem;
     color: #4A6080;
-    margin: 0;
+    margin: 0.2rem 0 0 0;
     font-family: 'Space Mono', monospace;
+    font-style: italic;
 }
 
-/* PowerScore */
+@keyframes scoreCount {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes barGrow {
+    from { width: 0%; }
+    to   { width: var(--target-width); }
+}
 .score-ring-wrap {
     display: flex;
     flex-direction: column;
@@ -73,6 +78,7 @@ html, body, [class*="css"] {
     font-weight: 700;
     color: #00D4FF;
     line-height: 1;
+    animation: scoreCount 0.8s ease-out forwards;
 }
 .score-label {
     font-size: 0.75rem;
@@ -88,14 +94,15 @@ html, body, [class*="css"] {
     background: #1E2A3A;
     border-radius: 3px;
     margin-top: 1rem;
+    overflow: hidden;
 }
 .score-bar-fill {
     height: 6px;
     border-radius: 3px;
     background: linear-gradient(90deg, #0066FF, #00D4FF);
+    animation: barGrow 1.2s ease-out forwards;
 }
 
-/* Metric cards */
 .metric-card {
     background: linear-gradient(135deg, #0D1520 0%, #111C2E 100%);
     border: 1px solid #1E2A3A;
@@ -110,29 +117,13 @@ html, body, [class*="css"] {
     color: #E8EDF5;
     line-height: 1.1;
 }
-.metric-unit {
-    font-size: 0.85rem;
-    color: #4A6080;
-    font-family: 'Space Mono', monospace;
-}
-.metric-label {
-    font-size: 0.75rem;
-    color: #4A6080;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-top: 0.3rem;
-}
-.metric-accent {
-    color: #00D4FF;
-}
-.metric-accent-green {
-    color: #00FF94;
-}
-.metric-accent-orange {
-    color: #FF6B35;
-}
+.metric-unit { font-size: 0.85rem; color: #4A6080; font-family: 'Space Mono', monospace; }
+.metric-label { font-size: 0.75rem; color: #4A6080; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 0.3rem; }
+.metric-sub { font-size: 0.7rem; color: #2A3A50; margin-top: 0.2rem; font-family: 'Space Mono', monospace; }
+.metric-accent { color: #00D4FF; }
+.metric-accent-green { color: #00FF94; }
+.metric-accent-orange { color: #FF6B35; }
 
-/* Section headers */
 .section-header {
     font-family: 'Syne', sans-serif;
     font-weight: 700;
@@ -145,45 +136,48 @@ html, body, [class*="css"] {
     align-items: center;
     gap: 8px;
 }
-.section-line {
-    flex: 1;
-    height: 1px;
-    background: #1E2A3A;
-}
+.section-line { flex: 1; height: 1px; background: #1E2A3A; }
 
-/* Hour chart */
-.hour-grid {
-    display: grid;
-    grid-template-columns: repeat(24, 1fr);
-    gap: 3px;
-    margin: 0.5rem 0;
-}
-.hour-cell {
-    height: 40px;
-    border-radius: 4px;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    padding-bottom: 3px;
-    font-size: 0.45rem;
-    font-family: 'Space Mono', monospace;
-    color: #4A6080;
+.hour-bar-wrap {
     position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 80px;
+    cursor: pointer;
 }
-.hour-label-row {
-    display: grid;
-    grid-template-columns: repeat(24, 1fr);
-    gap: 3px;
-    margin-bottom: 0.5rem;
+.hour-bar-wrap:hover .hour-tooltip { display: block; }
+.hour-tooltip {
+    display: none;
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1E2A3A;
+    color: #E8EDF5;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    padding: 4px 7px;
+    border-radius: 5px;
+    white-space: nowrap;
+    z-index: 10;
+    border: 1px solid #2A3A50;
 }
+.hour-bar {
+    width: 100%;
+    border-radius: 3px 3px 0 0;
+    transition: opacity 0.15s;
+}
+.hour-bar-wrap:hover .hour-bar { opacity: 0.75; }
 .hour-label {
-    font-size: 0.5rem;
+    font-size: 0.48rem;
     font-family: 'Space Mono', monospace;
     color: #4A6080;
     text-align: center;
+    margin-top: 3px;
 }
 
-/* Device table */
 .device-row {
     display: grid;
     grid-template-columns: 2fr 1fr 1fr 1fr;
@@ -192,29 +186,11 @@ html, body, [class*="css"] {
     align-items: center;
 }
 .device-row:last-child { border-bottom: none; }
-.device-row-header {
-    font-size: 0.7rem;
-    color: #4A6080;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-family: 'Space Mono', monospace;
-}
-.device-name {
-    font-weight: 600;
-    color: #E8EDF5;
-}
-.device-val {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.85rem;
-    color: #A0B4CC;
-}
-.device-cost {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.85rem;
-    color: #00FF94;
-}
+.device-row-header { font-size: 0.7rem; color: #4A6080; text-transform: uppercase; letter-spacing: 0.1em; font-family: 'Space Mono', monospace; }
+.device-name { font-weight: 600; color: #E8EDF5; }
+.device-val { font-family: 'Space Mono', monospace; font-size: 0.85rem; color: #A0B4CC; }
+.device-cost { font-family: 'Space Mono', monospace; font-size: 0.85rem; color: #00FF94; }
 
-/* Recommendation cards */
 .rec-card {
     background: #0D1520;
     border: 1px solid #1E2A3A;
@@ -238,21 +214,9 @@ html, body, [class*="css"] {
     line-height: 1.5;
 }
 
-/* Phantom load */
-.phantom-bar-bg {
-    width: 100%;
-    height: 8px;
-    background: #1E2A3A;
-    border-radius: 4px;
-    margin-top: 0.5rem;
-}
-.phantom-bar-fill {
-    height: 8px;
-    border-radius: 4px;
-    background: linear-gradient(90deg, #FF6B35, #FF3366);
-}
+.phantom-bar-bg { width: 100%; height: 8px; background: #1E2A3A; border-radius: 4px; margin-top: 0.5rem; }
+.phantom-bar-fill { height: 8px; border-radius: 4px; background: linear-gradient(90deg, #FF6B35, #FF3366); }
 
-/* Chat */
 .chat-bubble-user {
     background: #1E2A3A;
     border-radius: 12px 12px 2px 12px;
@@ -275,7 +239,12 @@ html, body, [class*="css"] {
     line-height: 1.5;
 }
 
-/* Streamlit overrides */
+.proj-bar-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.proj-month { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: #4A6080; width: 30px; }
+.proj-bar-bg { flex: 1; height: 10px; background: #1E2A3A; border-radius: 5px; overflow: hidden; }
+.proj-bar-fill { height: 10px; border-radius: 5px; background: linear-gradient(90deg, #0066FF, #00D4FF); }
+.proj-val { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: #00D4FF; width: 45px; text-align: right; }
+
 .stButton > button {
     background: linear-gradient(135deg, #0066FF, #00D4FF);
     color: #080C12;
@@ -287,9 +256,7 @@ html, body, [class*="css"] {
     font-size: 0.9rem;
     letter-spacing: 0.05em;
 }
-.stButton > button:hover {
-    opacity: 0.85;
-}
+.stButton > button:hover { opacity: 0.85; }
 .stTextInput > div > div > input {
     background: #0D1520;
     border: 1px solid #1E2A3A;
@@ -298,28 +265,27 @@ html, body, [class*="css"] {
     font-family: 'Space Mono', monospace;
     font-size: 0.85rem;
 }
+.stNumberInput > div > div > input {
+    background: #0D1520;
+    border: 1px solid #1E2A3A;
+    border-radius: 8px;
+    color: #E8EDF5;
+    font-family: 'Space Mono', monospace;
+}
 .stSelectbox > div > div {
     background: #0D1520;
     border: 1px solid #1E2A3A;
     border-radius: 8px;
     color: #E8EDF5;
 }
-div[data-testid="stTab"] button {
-    font-family: 'Syne', sans-serif;
-    font-weight: 600;
-    color: #4A6080;
-}
-div[data-testid="stTab"] button[aria-selected="true"] {
-    color: #00D4FF;
-    border-bottom-color: #00D4FF;
-}
+div[data-testid="stTab"] button { font-family: 'Syne', sans-serif; font-weight: 600; color: #4A6080; }
+div[data-testid="stTab"] button[aria-selected="true"] { color: #00D4FF; border-bottom-color: #00D4FF; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────
+# -----------------------------------------
 # SNOWFLAKE CONNECTION
-# Uses Streamlit in Snowflake native connection
-# ─────────────────────────────────────────
+# -----------------------------------------
 @st.cache_resource
 def get_snowflake_connection():
     return snowflake.connector.connect(
@@ -331,7 +297,6 @@ def get_snowflake_connection():
     )
 
 def run_query(query, params=None):
-    import pandas as pd
     conn = get_snowflake_connection()
     cursor = conn.cursor()
     if params:
@@ -343,9 +308,19 @@ def run_query(query, params=None):
     cursor.close()
     return pd.DataFrame(rows, columns=columns)
 
-# ─────────────────────────────────────────
+def run_write(query, params=None):
+    conn = get_snowflake_connection()
+    cursor = conn.cursor()
+    if params:
+        cursor.execute(query, params)
+    else:
+        cursor.execute(query)
+    conn.commit()
+    cursor.close()
+
+# -----------------------------------------
 # DATA FUNCTIONS
-# ─────────────────────────────────────────
+# -----------------------------------------
 def get_users():
     return run_query("SELECT user_id, zip_code FROM POWERPILOT.MAIN.users")
 
@@ -359,10 +334,9 @@ def get_devices(user_id):
         def safe(val, default=0):
             try:
                 f = float(val)
-                return f if f == f else default  # NaN check
+                return f if f == f else default
             except (TypeError, ValueError):
                 return default
-
         device = {
             "device_name": str(row["DEVICE_NAME"]),
             "power_on_watts": safe(row["POWER_ON_WATTS"]),
@@ -380,13 +354,9 @@ def get_rates(zip_code):
         "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates WHERE zip_code = %s ORDER BY hour",
         params=(zip_code,)
     )
-    # Build a lookup from whatever hours we have
     rate_lookup = {}
     for _, row in df.iterrows():
-        h = int(row["HOUR"])
-        rate_lookup[h] = float(row["COST_PER_KWH"])
-
-    # Fill all 24 hours by carrying forward the last known rate
+        rate_lookup[int(row["HOUR"])] = float(row["COST_PER_KWH"])
     rates = []
     last_rate = 0.12
     for h in range(24):
@@ -395,19 +365,28 @@ def get_rates(zip_code):
         rates.append({"hour": h, "cost_per_kwh": last_rate})
     return rates
 
-# ─────────────────────────────────────────
-# OPTIMIZER (copied from optimizer.py)
-# ─────────────────────────────────────────
+def add_device_to_db(user_id, device_name, power_on_watts, hours_on, hours_idle):
+    run_write(
+        "INSERT INTO POWERPILOT.MAIN.devices (user_id, device_name, power_on_watts, hours_on_per_day, hours_idle_per_day) VALUES (%s, %s, %s, %s, %s)",
+        params=(user_id, device_name, float(power_on_watts), float(hours_on), float(hours_idle))
+    )
+
+def delete_device_from_db(user_id, device_name):
+    run_write(
+        "DELETE FROM POWERPILOT.MAIN.devices WHERE user_id = %s AND device_name = %s",
+        params=(user_id, device_name)
+    )
+
+# -----------------------------------------
+# OPTIMIZER
+# -----------------------------------------
 def compute_energy_results(data):
     devices = data.get("devices", [])
     rates = data.get("energy_rates", [])
-
-    rate_lookup = {r["hour"]: r["cost_per_kwh"] for r in rates}
     avg_rate = sum(r["cost_per_kwh"] for r in rates) / len(rates) if rates else 0.12
 
     breakdown = []
     total_kwh = 0.0
-
     for device in devices:
         on_watts = device.get("power_on_watts", 0)
         idle_watts = device.get("power_idle_watts", on_watts * 0.05)
@@ -436,7 +415,7 @@ def compute_energy_results(data):
         for device in devices
     )
     phantom_kwh = round(phantom_watts / 1000, 3)
-    phantom_pct = round(phantom_kwh / total_kwh * 100) if total_kwh and total_kwh == total_kwh else 0
+    phantom_pct = round(phantom_kwh / total_kwh * 100) if (total_kwh and total_kwh == total_kwh) else 0
 
     worst_set = set(worst_hours)
     total_on_hours = sum(d.get("hours_on_per_day", 0) for d in devices)
@@ -446,11 +425,18 @@ def compute_energy_results(data):
     off_peak_bonus = round(min(20, savings_pct * 0.2))
     power_score = max(0, min(100, 100 - peak_usage_penalty - inefficiency_penalty + off_peak_bonus))
 
+    monthly_multipliers = {
+        "Jan": 1.15, "Feb": 1.10, "Mar": 1.00, "Apr": 0.95,
+        "May": 0.92, "Jun": 1.05, "Jul": 1.20, "Aug": 1.18,
+        "Sep": 1.05, "Oct": 0.95, "Nov": 1.00, "Dec": 1.12
+    }
+    monthly_projection = {
+        month: round(total_cost_per_month * mult, 2)
+        for month, mult in monthly_multipliers.items()
+    }
+
     return {
-        "summary": {
-            "total_kwh_per_day": round(total_kwh, 3),
-            "total_cost_per_month": total_cost_per_month,
-        },
+        "summary": {"total_kwh_per_day": round(total_kwh, 3), "total_cost_per_month": total_cost_per_month},
         "breakdown": breakdown,
         "optimization": {
             "best_hours": best_hours,
@@ -458,30 +444,20 @@ def compute_energy_results(data):
             "potential_savings_percent": savings_pct,
             "potential_monthly_savings_dollars": potential_savings,
         },
-        "phantom_load": {
-            "total_watts": round(phantom_watts, 1),
-            "daily_kwh": phantom_kwh,
-            "percentage_of_total": phantom_pct,
-        },
+        "phantom_load": {"total_watts": round(phantom_watts, 1), "daily_kwh": phantom_kwh, "percentage_of_total": phantom_pct},
         "power_score": power_score,
+        "monthly_projection": monthly_projection,
     }
 
-# ─────────────────────────────────────────
-# AI ENGINE (Groq via raw requests — no groq package needed)
-# ─────────────────────────────────────────
+# -----------------------------------------
+# AI ENGINE
+# -----------------------------------------
 def call_groq(prompt, max_tokens=1024):
     api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "llama-3.3-70b-versatile",
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        },
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"model": "llama-3.3-70b-versatile", "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]},
         timeout=30,
     )
     response.raise_for_status()
@@ -492,32 +468,12 @@ def generate_recommendation(data):
     rates = data.get("energy_rates", [])
     results = data.get("computed_results", {})
     power_score = results.get("power_score", 50)
-
-    prompt = f"""You are an energy optimization AI assistant. Analyze this user's energy usage data and return actionable recommendations.
-
-User devices and usage:
-{json.dumps(devices, indent=2)}
-
-Time-of-use energy rates (cost per kWh by hour):
-{json.dumps(rates, indent=2)}
-
-Computed energy summary:
-{json.dumps(results, indent=2)}
-
-The user's current PowerScore is {power_score}/100.
-Estimate new_energy_score as what their score could reach if they follow your recommendations (must be higher than {power_score}).
-
-Return a JSON object with exactly this structure (no extra text, just JSON):
-{{
-  "current_energy_score": {power_score},
-  "new_energy_score": <integer higher than {power_score}, max 100>,
-  "recommendations": ["<tip>", "<tip>", "<tip>"],
-  "estimated_monthly_savings": <float dollars>,
-  "insights": ["<insight>", "<insight>"],
-  "best_usage_hours": [<hour integers>],
-  "worst_usage_hours": [<hour integers>]
-}}"""
-
+    prompt = f"""You are an energy optimization AI. Analyze this user's energy data and return recommendations.
+Devices: {json.dumps(devices)}
+Rates: {json.dumps(rates)}
+Summary: {json.dumps(results)}
+PowerScore is {power_score}/100. Return ONLY a JSON object:
+{{"current_energy_score":{power_score},"new_energy_score":<int higher than {power_score}>,"recommendations":["<tip>","<tip>","<tip>"],"estimated_monthly_savings":<float>,"insights":["<insight>","<insight>"],"best_usage_hours":[<ints>],"worst_usage_hours":[<ints>]}}"""
     raw = call_groq(prompt, max_tokens=1024)
     try:
         if "```json" in raw:
@@ -526,88 +482,77 @@ Return a JSON object with exactly this structure (no extra text, just JSON):
             raw = raw.split("```")[1].split("```")[0].strip()
         return json.loads(raw)
     except Exception:
-        return {"error": "Failed to parse AI response", "raw": raw}
+        return {"error": "Failed to parse AI response"}
 
 def ask_question(question, data):
-    devices = data.get("devices", [])
-    results = data.get("computed_results", {})
-    rates = data.get("energy_rates", [])
-
-    prompt = f"""You are PowerPilot, a friendly home energy advisor. The user is looking at their home energy dashboard and has a question.
-
-Their devices:
-{json.dumps(devices, indent=2)}
-
-Their energy rates by hour:
-{json.dumps(rates, indent=2)}
-
-Their current usage summary:
-{json.dumps(results, indent=2)}
-
-The user asks: "{question}"
-
-Answer in 2-4 sentences. Be specific to their actual devices and data. Be friendly and practical. No jargon."""
-
+    prompt = f"""You are PowerPilot, a friendly home energy advisor.
+Devices: {json.dumps(data.get('devices', []))}
+Rates: {json.dumps(data.get('energy_rates', []))}
+Summary: {json.dumps(data.get('computed_results', {}))}
+User asks: "{question}"
+Answer in 2-4 sentences. Be specific, friendly, no jargon."""
     return call_groq(prompt, max_tokens=512)
 
-# ─────────────────────────────────────────
+# -----------------------------------------
 # SESSION STATE
-# ─────────────────────────────────────────
+# -----------------------------------------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
-if "data" not in st.session_state:
-    st.session_state.data = None
-if "computed" not in st.session_state:
-    st.session_state.computed = None
+if "refresh_devices" not in st.session_state:
+    st.session_state.refresh_devices = 0
 
-# ─────────────────────────────────────────
+# -----------------------------------------
 # HEADER
-# ─────────────────────────────────────────
+# -----------------------------------------
 st.markdown("""
 <div class="pilot-header">
     <div class="pilot-logo">⚡</div>
     <div>
         <div class="pilot-title">PowerPilot</div>
-        <div class="pilot-sub">SMART ENERGY ADVISOR</div>
+        <div class="pilot-tagline">Most people think saving energy means using less. When you use it matters just as much.</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────
+# -----------------------------------------
 # USER SELECTOR
-# ─────────────────────────────────────────
-users_df = get_users()
+# -----------------------------------------
+with st.spinner("Loading your energy profile..."):
+    users_df = get_users()
+
 user_ids = users_df["USER_ID"].tolist()
-selected_user = st.selectbox("Select User", user_ids, label_visibility="collapsed")
+user_labels = {uid: f"Home {i+1}" for i, uid in enumerate(user_ids)}
+
+col_user, col_spacer = st.columns([1, 3])
+with col_user:
+    selected_label = st.selectbox("Viewing profile for", options=list(user_labels.values()))
+selected_user = [k for k, v in user_labels.items() if v == selected_label][0]
 
 zip_row = users_df[users_df["USER_ID"] == selected_user].iloc[0]
 zip_code = zip_row["ZIP_CODE"]
 
-devices = get_devices(selected_user)
-rates = get_rates(zip_code)
+with st.spinner("Fetching devices and rates..."):
+    _ = st.session_state.refresh_devices
+    devices = get_devices(selected_user)
+    rates = get_rates(zip_code)
 
-data = {
-    "user_id": selected_user,
-    "devices": devices,
-    "energy_rates": rates,
-}
+data = {"user_id": selected_user, "devices": devices, "energy_rates": rates}
 computed = compute_energy_results(data)
 data["computed_results"] = computed
-st.session_state.data = data
-st.session_state.computed = computed
 
-# ─────────────────────────────────────────
-# POWERSCORE + TOP METRICS
-# ─────────────────────────────────────────
+# -----------------------------------------
+# TOP METRICS
+# -----------------------------------------
 power_score = computed["power_score"]
 total_kwh = computed["summary"]["total_kwh_per_day"]
 total_cost = computed["summary"]["total_cost_per_month"]
 potential_savings = computed["optimization"]["potential_monthly_savings_dollars"]
 phantom_pct = computed["phantom_load"]["percentage_of_total"]
+annual_cost = round(total_cost * 12, 2)
 
-col1, col2, col3, col4 = st.columns([1.2, 1, 1, 1])
+col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1])
 
 with col1:
     st.markdown(f"""
@@ -615,7 +560,7 @@ with col1:
         <div class="score-number">{power_score}</div>
         <div class="score-label">PowerScore</div>
         <div class="score-bar-bg">
-            <div class="score-bar-fill" style="width:{power_score}%"></div>
+            <div class="score-bar-fill" style="--target-width:{power_score}%;width:{power_score}%"></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -633,6 +578,7 @@ with col3:
     <div class="metric-card">
         <div class="metric-value">${total_cost}<span class="metric-unit">/mo</span></div>
         <div class="metric-label">Est. Monthly Cost</div>
+        <div class="metric-sub">${annual_cost}/yr</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -641,57 +587,61 @@ with col4:
     <div class="metric-card">
         <div class="metric-value metric-accent-green">${potential_savings}<span class="metric-unit">/mo</span></div>
         <div class="metric-label">Potential Savings</div>
+        <div class="metric-sub">${round(potential_savings * 12, 2)}/yr</div>
     </div>
     """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────
-# TABS
-# ─────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["⚡ Rates & Hours", "📊 Devices", "🤖 AI Advisor", "💬 Chat"])
+with col5:
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-value metric-accent-orange">{phantom_pct}<span class="metric-unit">%</span></div>
+        <div class="metric-label">Phantom Load</div>
+        <div class="metric-sub">idle device waste</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ── TAB 1: RATES & HOURS CHART ──
+# -----------------------------------------
+# TABS
+# -----------------------------------------
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ Rates & Hours", "📊 Devices", "📈 Projection", "🤖 AI Advisor", "💬 Chat"])
+
+# ── TAB 1: RATES & HOURS ──
 with tab1:
     st.markdown('<div class="section-header">Time-of-Use Rates <div class="section-line"></div></div>', unsafe_allow_html=True)
 
     best_hours = set(computed["optimization"]["best_hours"])
     worst_hours = set(computed["optimization"]["worst_hours"])
-
     rate_map = {r["hour"]: r["cost_per_kwh"] for r in rates}
-    all_hours = list(range(24))
     max_rate = max(rate_map.values()) if rate_map else 0.25
     min_rate = min(rate_map.values()) if rate_map else 0.10
 
-    cells = ""
-    labels = ""
-    for h in all_hours:
-        rate = rate_map.get(h, rate_map.get(max(k for k in rate_map if k <= h), 0.13))
-        height_pct = int(((rate - min_rate) / (max_rate - min_rate + 0.001)) * 80 + 20)
+    bars_html = '<div style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;align-items:end;height:100px;">'
+    for h in range(24):
+        rate = rate_map.get(h, 0.12)
+        height_pct = int(((rate - min_rate) / (max_rate - min_rate + 0.001)) * 75 + 25)
+        color = "#FF3366" if h in worst_hours else ("#00FF94" if h in best_hours else "#1E3A5F")
+        bars_html += f"""<div class="hour-bar-wrap">
+            <div class="hour-tooltip">{h:02d}:00 — ${rate:.4f}/kWh</div>
+            <div class="hour-bar" style="background:{color};height:{height_pct}%;"></div>
+        </div>"""
+    bars_html += "</div>"
 
-        if h in worst_hours:
-            color = "#FF3366"
-        elif h in best_hours:
-            color = "#00FF94"
-        else:
-            color = "#1E3A5F"
-
-        cells += f'<div class="hour-cell" style="background:{color};height:{height_pct}%;">&nbsp;</div>'
-        labels += f'<div class="hour-label">{h:02d}</div>'
+    labels_html = '<div style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;margin-top:4px;">'
+    for h in range(24):
+        labels_html += f'<div class="hour-label">{h:02d}</div>'
+    labels_html += "</div>"
 
     st.markdown(f"""
     <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.5rem;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
-            <span style="font-size:0.75rem;color:#4A6080;font-family:Space Mono,monospace;">HOUR OF DAY (0-23)</span>
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.8rem;">
+            <span style="font-size:0.75rem;color:#4A6080;font-family:Space Mono,monospace;">HOUR OF DAY — hover for rate</span>
             <span style="font-size:0.75rem;color:#4A6080;font-family:Space Mono,monospace;">
                 <span style="color:#00FF94;">■</span> Cheapest &nbsp;
-                <span style="color:#FF3366;">■</span> Most Expensive
+                <span style="color:#FF3366;">■</span> Most Expensive &nbsp;
+                <span style="color:#1E3A5F;">■</span> Mid
             </span>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;height:80px;align-items:end;">
-            {cells}
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;margin-top:4px;">
-            {labels}
-        </div>
+        {bars_html}{labels_html}
     </div>
     """, unsafe_allow_html=True)
 
@@ -700,45 +650,32 @@ with tab1:
         st.markdown(f"""
         <div class="metric-card" style="margin-top:1rem;">
             <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Best Hours to Run Devices</div>
-            <div style="font-family:Space Mono,monospace;font-size:1.2rem;color:#00FF94;margin-top:0.5rem;">
-                {", ".join(f"{h:02d}:00" for h in sorted(best_hours))}
-            </div>
+            <div style="font-family:Space Mono,monospace;font-size:1.1rem;color:#00FF94;margin-top:0.5rem;">{", ".join(f"{h:02d}:00" for h in sorted(best_hours))}</div>
         </div>
         """, unsafe_allow_html=True)
     with col_b:
         st.markdown(f"""
         <div class="metric-card" style="margin-top:1rem;">
             <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Avoid These Hours</div>
-            <div style="font-family:Space Mono,monospace;font-size:1.2rem;color:#FF3366;margin-top:0.5rem;">
-                {", ".join(f"{h:02d}:00" for h in sorted(worst_hours))}
-            </div>
+            <div style="font-family:Space Mono,monospace;font-size:1.1rem;color:#FF3366;margin-top:0.5rem;">{", ".join(f"{h:02d}:00" for h in sorted(worst_hours))}</div>
         </div>
         """, unsafe_allow_html=True)
 
-    # Phantom load
     st.markdown('<div class="section-header" style="margin-top:2rem;">Hidden Energy Waste <div class="section-line"></div></div>', unsafe_allow_html=True)
     phantom_watts = computed["phantom_load"]["total_watts"]
     phantom_kwh = computed["phantom_load"]["daily_kwh"]
-
     st.markdown(f"""
     <div class="metric-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div>
-                <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Phantom Load</div>
-                <div style="font-family:Space Mono,monospace;font-size:1.5rem;color:#FF6B35;margin-top:0.3rem;">{phantom_pct}% of total usage</div>
-                <div style="font-size:0.8rem;color:#4A6080;margin-top:0.3rem;">{phantom_watts}W idle draw · {phantom_kwh} kWh/day wasted</div>
-            </div>
-        </div>
-        <div class="phantom-bar-bg">
-            <div class="phantom-bar-fill" style="width:{min(phantom_pct,100)}%"></div>
-        </div>
+        <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Phantom Load</div>
+        <div style="font-family:Space Mono,monospace;font-size:1.5rem;color:#FF6B35;margin-top:0.3rem;">{phantom_pct}% of total usage</div>
+        <div style="font-size:0.8rem;color:#4A6080;margin-top:0.3rem;">{phantom_watts}W idle draw · {phantom_kwh} kWh/day wasted</div>
+        <div class="phantom-bar-bg"><div class="phantom-bar-fill" style="width:{min(phantom_pct,100)}%"></div></div>
     </div>
     """, unsafe_allow_html=True)
 
-# ── TAB 2: DEVICE BREAKDOWN ──
+# ── TAB 2: DEVICES ──
 with tab2:
     st.markdown('<div class="section-header">Device Breakdown <div class="section-line"></div></div>', unsafe_allow_html=True)
-
     breakdown = computed["breakdown"]
 
     st.markdown("""
@@ -747,7 +684,6 @@ with tab2:
             <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Share</div>
         </div>
     """, unsafe_allow_html=True)
-
     for item in breakdown:
         share = round(item["kwh_per_day"] / total_kwh * 100) if total_kwh else 0
         st.markdown(f"""
@@ -758,16 +694,91 @@ with tab2:
             <div class="device-val">{share}%</div>
         </div>
         """, unsafe_allow_html=True)
-
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ── TAB 3: AI ADVISOR ──
-with tab3:
-    st.markdown('<div class="section-header">AI Recommendations <div class="section-line"></div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>', unsafe_allow_html=True)
+    with st.form("add_device_form", clear_on_submit=True):
+        fc1, fc2, fc3, fc4 = st.columns(4)
+        with fc1:
+            new_name = st.text_input("Device Name", placeholder="e.g. Dishwasher")
+        with fc2:
+            new_watts = st.number_input("Power (watts)", min_value=1, max_value=10000, value=100)
+        with fc3:
+            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=1.0, step=0.5)
+        with fc4:
+            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=23.0, step=0.5)
+        submitted = st.form_submit_button("⚡ Add Device")
+        if submitted and new_name:
+            add_device_to_db(selected_user, new_name, new_watts, new_hours_on, new_hours_idle)
+            st.session_state.refresh_devices += 1
+            st.success(f"Added {new_name}!")
+            st.rerun()
 
+    if breakdown:
+        st.markdown('<div class="section-header" style="margin-top:1.5rem;">Remove a Device <div class="section-line"></div></div>', unsafe_allow_html=True)
+        col_del1, col_del2 = st.columns([2, 1])
+        with col_del1:
+            to_delete = st.selectbox("Select device to remove", [item["device_name"] for item in breakdown])
+        with col_del2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Remove"):
+                delete_device_from_db(selected_user, to_delete)
+                st.session_state.refresh_devices += 1
+                st.success(f"Removed {to_delete}")
+                st.rerun()
+
+# ── TAB 3: MONTHLY PROJECTION ──
+with tab3:
+    st.markdown('<div class="section-header">12-Month Cost Projection <div class="section-line"></div></div>', unsafe_allow_html=True)
+    projection = computed["monthly_projection"]
+    max_proj = max(projection.values()) if projection else 1
+
+    proj_html = ""
+    for month, cost in projection.items():
+        bar_pct = int((cost / max_proj) * 100)
+        proj_html += f"""
+        <div class="proj-bar-wrap">
+            <div class="proj-month">{month}</div>
+            <div class="proj-bar-bg"><div class="proj-bar-fill" style="width:{bar_pct}%"></div></div>
+            <div class="proj-val">${cost}</div>
+        </div>"""
+
+    annual_total = round(sum(projection.values()), 2)
+    annual_savings = round(annual_total * computed["optimization"]["potential_savings_percent"] / 100, 2)
+
+    col_p1, col_p2 = st.columns([2, 1])
+    with col_p1:
+        st.markdown(f"""
+        <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.5rem;">
+            <div style="font-size:0.7rem;color:#4A6080;font-family:Space Mono,monospace;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1rem;">
+                Estimated monthly cost — based on seasonal usage patterns
+            </div>
+            {proj_html}
+        </div>
+        """, unsafe_allow_html=True)
+    with col_p2:
+        peak_month = max(projection, key=projection.get)
+        st.markdown(f"""
+        <div class="metric-card">
+            <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Annual Total</div>
+            <div style="font-family:Space Mono,monospace;font-size:1.8rem;color:#E8EDF5;margin-top:0.4rem;">${annual_total}</div>
+        </div>
+        <div class="metric-card" style="margin-top:1rem;">
+            <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Potential Annual Savings</div>
+            <div style="font-family:Space Mono,monospace;font-size:1.8rem;color:#00FF94;margin-top:0.4rem;">${annual_savings}</div>
+        </div>
+        <div class="metric-card" style="margin-top:1rem;">
+            <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;">Peak Month</div>
+            <div style="font-family:Space Mono,monospace;font-size:1.4rem;color:#FF6B35;margin-top:0.4rem;">{peak_month} — ${projection[peak_month]}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ── TAB 4: AI ADVISOR ──
+with tab4:
+    st.markdown('<div class="section-header">AI Recommendations <div class="section-line"></div></div>', unsafe_allow_html=True)
     if st.button("⚡ Optimize My Usage"):
         with st.spinner("Analyzing your energy profile..."):
-            result = generate_recommendation(st.session_state.data)
+            result = generate_recommendation(data)
             st.session_state.ai_result = result
 
     if st.session_state.ai_result:
@@ -775,7 +786,6 @@ with tab3:
         if "error" not in result:
             new_score = result.get("new_energy_score", power_score)
             monthly_savings = result.get("estimated_monthly_savings", 0)
-
             col_x, col_y = st.columns(2)
             with col_x:
                 st.markdown(f"""
@@ -791,21 +801,18 @@ with tab3:
                     <div style="font-family:Space Mono,monospace;font-size:2rem;color:#00FF94;margin-top:0.3rem;">${monthly_savings}</div>
                 </div>
                 """, unsafe_allow_html=True)
-
             st.markdown('<div style="margin-top:1.5rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Recommendations</div>', unsafe_allow_html=True)
             for rec in result.get("recommendations", []):
                 st.markdown(f'<div class="rec-card">→ {rec}</div>', unsafe_allow_html=True)
-
             st.markdown('<div style="margin-top:1rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Insights</div>', unsafe_allow_html=True)
             for insight in result.get("insights", []):
                 st.markdown(f'<div class="insight-card">◆ {insight}</div>', unsafe_allow_html=True)
         else:
             st.error("AI response error. Check your Groq API key in secrets.")
 
-# ── TAB 4: CHAT ──
-with tab4:
+# ── TAB 5: CHAT ──
+with tab5:
     st.markdown('<div class="section-header">Chat with PowerPilot <div class="section-line"></div></div>', unsafe_allow_html=True)
-
     for msg in st.session_state.chat_history:
         if msg["role"] == "user":
             st.markdown(f'<div class="chat-bubble-user">{msg["content"]}</div>', unsafe_allow_html=True)
@@ -816,6 +823,6 @@ with tab4:
     if st.button("Send") and question:
         st.session_state.chat_history.append({"role": "user", "content": question})
         with st.spinner("Thinking..."):
-            answer = ask_question(question, st.session_state.data)
+            answer = ask_question(question, data)
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         st.rerun()
