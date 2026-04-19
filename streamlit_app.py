@@ -201,9 +201,17 @@ def _sf_creds():
     )
 
 
+def _sf_fresh_conn(autocommit=False):
+    """Always returns a brand-new Snowflake connection."""
+    creds = _sf_creds()
+    if autocommit:
+        creds["autocommit"] = True
+    return snowflake.connector.connect(**creds)
+
+
 def run_query(query, params=None):
-    """SELECT queries via fresh connection to avoid stale cached results after writes."""
-    conn = snowflake.connector.connect(**_sf_creds())
+    """Fresh connection every time — never returns stale data after a write."""
+    conn = _sf_fresh_conn()
     cursor = conn.cursor()
     try:
         cursor.execute(query, params) if params else cursor.execute(query)
@@ -216,14 +224,8 @@ def run_query(query, params=None):
 
 
 def run_write(query, params=None):
-    """
-    INSERT / DELETE via a fresh autocommit connection.
-    autocommit=True means Snowflake commits immediately on execute —
-    no conn.commit() needed, and no stale cached connection issues.
-    """
-    creds = _sf_creds()
-    creds["autocommit"] = True
-    conn = snowflake.connector.connect(**creds)
+    """INSERT / DELETE — fresh autocommit connection, raises on failure."""
+    conn = _sf_fresh_conn(autocommit=True)
     cursor = conn.cursor()
     try:
         cursor.execute(query, params) if params else cursor.execute(query)
@@ -281,11 +283,15 @@ def get_rates():
 
 
 def add_device_to_db(user_id, device_name, power_on_watts, hours_on, hours_idle):
+    # power_idle_watts defaults to 5% of on-watts — included explicitly to
+    # satisfy any NOT NULL constraint on that column in Snowflake.
+    idle_watts = round(float(power_on_watts) * 0.05, 2)
     run_write(
         "INSERT INTO POWERPILOT.MAIN.devices "
-        "(user_id, device_name, power_on_watts, hours_on_per_day, hours_idle_per_day) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        params=(user_id, device_name, float(power_on_watts), float(hours_on), float(hours_idle))
+        "(user_id, device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        params=(user_id, device_name, float(power_on_watts), idle_watts,
+                float(hours_on), float(hours_idle))
     )
 
 
@@ -453,31 +459,26 @@ Answer in 2-4 sentences. Be specific, friendly, practical. No jargon."""
 
 
 def lookup_device_specs(device_name: str) -> dict:
-    """
-    Uses Groq to return US average energy specs for a device.
-    Distinguishes between active hours (actually on) vs idle hours (plugged in but not in use).
-    """
-    prompt = f"""You are a home energy expert with deep knowledge of US household appliance usage.
-A user wants to add "{device_name}" to their energy tracker.
+    """Uses Groq to return US-average energy specs for a named device."""
+    prompt = f"""You are a home energy expert. A user wants to add "{device_name}" to their energy tracker.
 
-Return ONLY a JSON object with US average values. No extra text, no markdown.
+Return ONLY a JSON object — no markdown, no explanation:
 {{
-  "watts": <integer — typical wattage while actively running/on>,
+  "watts": <integer — typical wattage while ACTIVELY running>,
   "hours_on": <float — average hours per day the device is ACTIVELY running in a US home>,
-  "hours_idle": <float — average hours per day the device is plugged in but in standby/idle>,
-  "note": "<one sentence: key energy fact about this device based on US EIA or DOE data>"
+  "hours_idle": <float — hours per day plugged in but in standby/idle (0 if device is simply off when not in use)>,
+  "note": "<one sentence energy fact based on US EIA or DOE data>"
 }}
 
-Important rules:
-- "hours_on" = device is actively doing its job (light is lit, motor running, screen on)
-- "hours_idle" = device is plugged in but doing nothing useful (TV on standby, phone charged but still plugged in)
-- hours_on + hours_idle should not exceed 24
-- For lights: they are OFF (not idle) when not in use — idle should be 0
-- For TVs/monitors: use real US average screen-on time (~4-5h/day), standby ~18h
-- For refrigerators: they cycle — treat as ~8h equivalent on, rest idle
-- For AC/heaters: use typical active-season daily hours only
-- For laptops/computers: typical active use hours, some idle
-- Base all values on US Energy Information Administration or Department of Energy averages"""
+Rules:
+- hours_on = device is actively doing its job
+- hours_idle = plugged in but doing nothing (TV standby, laptop sleeping but plugged in)
+- Lights have hours_idle = 0 (they are simply OFF when not in use, not idle)
+- TV: ~4h on, ~18h standby
+- Refrigerator: cycles, treat as ~8h equivalent on, ~16h idle
+- Laptop: ~6h on, ~4h idle (charging/sleeping), rest off
+- AC/heater: use active-season daily hours only
+- Base values on US EIA or DOE averages"""
     try:
         api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
         response = requests.post(
@@ -486,7 +487,7 @@ Important rules:
             json={
                 "model": "llama-3.3-70b-versatile",
                 "max_tokens": 200,
-                "messages": [{"role": "user", "content": prompt}]
+                "messages": [{"role": "user", "content": prompt}],
             },
             timeout=30,
         )
@@ -498,12 +499,12 @@ Important rules:
             raw = raw.split("```")[1].split("```")[0].strip()
         result = json.loads(raw)
         return {
-            "watts": max(1, int(result.get("watts", 100))),
-            "hours_on": min(24.0, max(0.0, float(result.get("hours_on", 2.0)))),
+            "watts":      max(1,    int(float(result.get("watts", 100)))),
+            "hours_on":   min(24.0, max(0.0, float(result.get("hours_on", 2.0)))),
             "hours_idle": min(24.0, max(0.0, float(result.get("hours_idle", 0.0)))),
-            "note": str(result.get("note", "")),
+            "note":       str(result.get("note", "")),
         }
-    except Exception as e:
+    except Exception:
         return {"watts": 100, "hours_on": 2.0, "hours_idle": 0.0, "note": ""}
 
 
@@ -517,7 +518,7 @@ if "ai_result" not in st.session_state:
 if "refresh_devices" not in st.session_state:
     st.session_state.refresh_devices = 0
 if "device_lookup_result" not in st.session_state:
-    st.session_state.device_lookup_result = None   # {watts, hours_on, hours_idle, note, name}
+    st.session_state.device_lookup_result = None
 
 USER_ID = "u1"
 
@@ -715,7 +716,7 @@ with tab2:
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>',
                 unsafe_allow_html=True)
 
-    # ── Step 1: Search ──
+    # Step 1: type name and search
     s1, s2 = st.columns([3, 1])
     with s1:
         search_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...", key="device_search_input")
@@ -727,46 +728,48 @@ with tab2:
         if not search_name.strip():
             st.warning("Enter a device name to search.")
         else:
-            with st.spinner(f"Looking up US average specs for {search_name!r}..."):
+            with st.spinner("Looking up US average specs..."):
                 result = lookup_device_specs(search_name.strip())
             result["name"] = search_name.strip()
             st.session_state.device_lookup_result = result
 
-    # ── Step 2: Edit & Add ──
+    # Step 2: show result + editable fields + Add button
     lr = st.session_state.device_lookup_result
     if lr:
-        st.markdown(
-            f'<div style="font-size:0.75rem;color:#00D4FF;font-family:Space Mono,monospace;'
-            f'margin:0.6rem 0;padding:0.6rem 1rem;background:#0D1520;border:1px solid #1E2A3A;'
-            f'border-left:3px solid #00D4FF;border-radius:8px;">'
-            f'⚡ {lr["note"] or "Adjust values below if needed."}</div>',
-            unsafe_allow_html=True
-        )
+        if lr.get("note"):
+            st.markdown(
+                f'<div style="font-size:0.75rem;color:#00D4FF;font-family:Space Mono,monospace;'
+                f'margin:0.6rem 0;padding:0.6rem 1rem;background:#0D1520;border:1px solid #1E2A3A;'
+                f'border-left:3px solid #00D4FF;border-radius:8px;">⚡ {lr["note"]}</div>',
+                unsafe_allow_html=True
+            )
         fc1, fc2, fc3 = st.columns(3)
         with fc1:
             edit_watts = st.number_input("Power (watts)", min_value=1, max_value=20000,
                                          value=lr["watts"], key="edit_watts")
         with fc2:
             edit_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0,
-                                             value=lr["hours_on"], step=0.5, key="edit_hours_on")
+                                             value=float(lr["hours_on"]), step=0.5, key="edit_hours_on")
         with fc3:
             edit_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0,
-                                               value=lr["hours_idle"], step=0.5, key="edit_hours_idle")
+                                               value=float(lr["hours_idle"]), step=0.5, key="edit_hours_idle")
 
         if st.button(f"⚡ Add {lr['name']} to my home", key="btn_add_device"):
             try:
-                add_device_to_db(USER_ID, lr["name"],
-                                  st.session_state.edit_watts,
-                                  st.session_state.edit_hours_on,
-                                  st.session_state.edit_hours_idle)
+                add_device_to_db(
+                    USER_ID,
+                    lr["name"],
+                    st.session_state.edit_watts,
+                    st.session_state.edit_hours_on,
+                    st.session_state.edit_hours_idle,
+                )
                 st.session_state.refresh_devices += 1
                 st.session_state.device_lookup_result = None
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to add device: {e}")
     else:
-        st.caption("Search for a device above to see suggested values.")
-
+        st.caption("Search for a device above to see US average energy specs.")
 
     if breakdown:
         st.markdown('<div class="section-header" style="margin-top:1.5rem;">Remove a Device <div class="section-line"></div></div>',
