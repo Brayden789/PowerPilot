@@ -5,6 +5,12 @@ import os
 import requests
 import pandas as pd
 
+# Import the modular AI engine and optimizer
+# These modules live alongside streamlit_app.py in the same directory
+from optimizer import compute_energy_results, _classify_device, MONTH_NAMES
+from ai_engine import generate_energy_recommendation, ask_energy_question
+from rates_fetcher import get_rates_by_zip
+
 # -----------------------------------------
 # PAGE CONFIG
 # -----------------------------------------
@@ -180,7 +186,7 @@ html, body, [class*="css"] {
 
 .device-row {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr 1fr;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
     padding: 0.8rem 1rem;
     border-bottom: 1px solid #1E2A3A;
     align-items: center;
@@ -190,6 +196,18 @@ html, body, [class*="css"] {
 .device-name { font-weight: 600; color: #E8EDF5; }
 .device-val { font-family: 'Space Mono', monospace; font-size: 0.85rem; color: #A0B4CC; }
 .device-cost { font-family: 'Space Mono', monospace; font-size: 0.85rem; color: #00FF94; }
+.badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-family: 'Space Mono', monospace;
+    padding: 2px 7px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.badge-cooling { background: #0A2A3A; color: #00D4FF; border: 1px solid #00D4FF44; }
+.badge-heating { background: #2A1A0A; color: #FF6B35; border: 1px solid #FF6B3544; }
+.badge-standard { background: #1A2030; color: #4A6080; border: 1px solid #2A3A5044; }
 
 .rec-card {
     background: #0D1520;
@@ -238,6 +256,27 @@ html, body, [class*="css"] {
     max-width: 80%;
     line-height: 1.5;
 }
+
+.zip-card {
+    background: #0D1520;
+    border: 1px solid #1E2A3A;
+    border-radius: 12px;
+    padding: 0.8rem 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.rate-source-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-family: 'Space Mono', monospace;
+    padding: 3px 9px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.rate-source-live { background: #0A2A1A; color: #00FF94; border: 1px solid #00FF9444; }
+.rate-source-fallback { background: #2A1A0A; color: #FF6B35; border: 1px solid #FF6B3544; }
 
 .stButton > button {
     background: linear-gradient(135deg, #0066FF, #00D4FF);
@@ -343,22 +382,6 @@ def get_devices(user_id):
         devices.append(device)
     return devices
 
-def get_rates(zip_code):
-    df = run_query(
-        "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates WHERE zip_code = %s ORDER BY hour",
-        params=(zip_code,)
-    )
-    rate_lookup = {}
-    for _, row in df.iterrows():
-        rate_lookup[int(row["HOUR"])] = float(row["COST_PER_KWH"])
-    rates = []
-    last_rate = 0.12
-    for h in range(24):
-        if h in rate_lookup:
-            last_rate = rate_lookup[h]
-        rates.append({"hour": h, "cost_per_kwh": last_rate})
-    return rates
-
 def add_device_to_db(user_id, device_name, power_on_watts, hours_on, hours_idle):
     run_write(
         "INSERT INTO POWERPILOT.MAIN.devices (user_id, device_name, power_on_watts, hours_on_per_day, hours_idle_per_day) VALUES (%s, %s, %s, %s, %s)",
@@ -371,10 +394,35 @@ def delete_device_from_db(user_id, device_name):
         params=(user_id, device_name)
     )
 
+def update_user_zip(user_id, zip_code):
+    run_write(
+        "UPDATE POWERPILOT.MAIN.users SET zip_code = %s WHERE user_id = %s",
+        params=(zip_code, user_id)
+    )
+
 # -----------------------------------------
-# DEVICE DEFAULTS LOOKUP (AI-powered)
+# OPENEI RATES — with caching so we don't
+# hammer the API on every rerender
 # -----------------------------------------
-# Static fallback table for instant defaults without API call
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_rates_cached(zip_code: str):
+    """
+    Calls OpenEI via rates_fetcher and returns (rates_list, source_label).
+    Cached for 1 hour per zip code.
+    """
+    try:
+        rates = get_rates_by_zip(zip_code)
+        # Detect if we got real TOU data (rates_fetcher falls back to 5-slot default)
+        source = "live" if len(rates) == 24 else "fallback"
+        return rates, source
+    except Exception:
+        # Hard fallback if everything fails
+        rates = [{"hour": h, "cost_per_kwh": 0.12} for h in range(24)]
+        return rates, "fallback"
+
+# -----------------------------------------
+# DEVICE DEFAULTS LOOKUP
+# -----------------------------------------
 DEVICE_DEFAULTS = {
     "refrigerator": {"watts": 150, "hours_on": 24, "hours_idle": 0},
     "fridge": {"watts": 150, "hours_on": 24, "hours_idle": 0},
@@ -390,7 +438,6 @@ DEVICE_DEFAULTS = {
     "tv": {"watts": 100, "hours_on": 5, "hours_idle": 1},
     "television": {"watts": 100, "hours_on": 5, "hours_idle": 1},
     "desktop": {"watts": 200, "hours_on": 6, "hours_idle": 2},
-    "desktop computer": {"watts": 200, "hours_on": 6, "hours_idle": 2},
     "laptop": {"watts": 50, "hours_on": 6, "hours_idle": 2},
     "monitor": {"watts": 30, "hours_on": 6, "hours_idle": 1},
     "gaming console": {"watts": 150, "hours_on": 3, "hours_idle": 1},
@@ -399,24 +446,23 @@ DEVICE_DEFAULTS = {
     "air conditioner": {"watts": 1500, "hours_on": 8, "hours_idle": 0},
     "ac": {"watts": 1500, "hours_on": 8, "hours_idle": 0},
     "window ac": {"watts": 1200, "hours_on": 8, "hours_idle": 0},
+    "central air": {"watts": 3500, "hours_on": 8, "hours_idle": 0},
     "heater": {"watts": 1500, "hours_on": 6, "hours_idle": 0},
     "space heater": {"watts": 1500, "hours_on": 6, "hours_idle": 0},
-    "heat pump": {"watts": 1000, "hours_on": 8, "hours_idle": 0},
     "furnace": {"watts": 600, "hours_on": 8, "hours_idle": 0},
+    "heat pump": {"watts": 1000, "hours_on": 8, "hours_idle": 0},
     "ceiling fan": {"watts": 75, "hours_on": 8, "hours_idle": 0},
     "fan": {"watts": 50, "hours_on": 8, "hours_idle": 0},
     "led light": {"watts": 10, "hours_on": 5, "hours_idle": 0},
     "light": {"watts": 10, "hours_on": 5, "hours_idle": 0},
     "lamp": {"watts": 15, "hours_on": 4, "hours_idle": 0},
     "water heater": {"watts": 4000, "hours_on": 3, "hours_idle": 0},
-    "electric water heater": {"watts": 4000, "hours_on": 3, "hours_idle": 0},
     "coffee maker": {"watts": 900, "hours_on": 0.5, "hours_idle": 0},
     "toaster": {"watts": 900, "hours_on": 0.1, "hours_idle": 0},
     "toaster oven": {"watts": 1200, "hours_on": 0.5, "hours_idle": 0},
     "hair dryer": {"watts": 1800, "hours_on": 0.2, "hours_idle": 0},
     "router": {"watts": 10, "hours_on": 24, "hours_idle": 0},
     "phone charger": {"watts": 10, "hours_on": 3, "hours_idle": 0},
-    "electric vehicle charger": {"watts": 7200, "hours_on": 4, "hours_idle": 0},
     "ev charger": {"watts": 7200, "hours_on": 4, "hours_idle": 0},
     "pool pump": {"watts": 1500, "hours_on": 6, "hours_idle": 0},
     "hot tub": {"watts": 1500, "hours_on": 4, "hours_idle": 4},
@@ -427,200 +473,49 @@ DEVICE_DEFAULTS = {
 }
 
 def get_device_defaults_ai(device_name: str) -> dict:
-    """
-    First checks the local lookup table. If not found, calls Groq to get
-    average wattage, hours on, and hours idle for the named device.
-    Returns dict with keys: watts, hours_on, hours_idle
-    """
     key = device_name.strip().lower()
     if key in DEVICE_DEFAULTS:
         return DEVICE_DEFAULTS[key]
-
-    # Partial match — e.g. "gaming laptop" matches "laptop"
     for k, v in DEVICE_DEFAULTS.items():
         if k in key or key in k:
             return v
-
-    # Fall back to AI
+    # Groq fallback
     api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
     if not api_key:
         return {"watts": 100, "hours_on": 2.0, "hours_idle": 0.0}
-
-    prompt = f"""You are a home energy expert. For the household device "{device_name}", provide the typical average values.
+    prompt = f"""You are a home energy expert. For the household device "{device_name}", provide typical average values.
 Return ONLY a JSON object with no extra text or markdown:
-{{"watts": <typical average wattage as integer>, "hours_on": <typical hours used per day as float>, "hours_idle": <typical idle hours per day as float>}}
-Use realistic averages a homeowner would expect. For appliances that run continuously (fridges, routers), set hours_on to 24."""
+{{"watts": <typical average wattage as integer>, "hours_on": <typical hours used per day as float>, "hours_idle": <typical idle hours per day as float>}}"""
     try:
-        response = requests.post(
+        resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": "llama-3.3-70b-versatile",
-                "max_tokens": 100,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1,
-            },
+            json={"model": "llama-3.3-70b-versatile", "max_tokens": 80, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
             timeout=10,
         )
-        response.raise_for_status()
-        raw = response.json()["choices"][0]["message"]["content"].strip()
+        resp.raise_for_status()
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
         if "```" in raw:
             raw = raw.split("```")[1].split("```")[0].replace("json", "").strip()
         result = json.loads(raw)
-        return {
-            "watts": int(result.get("watts", 100)),
-            "hours_on": float(result.get("hours_on", 2.0)),
-            "hours_idle": float(result.get("hours_idle", 0.0)),
-        }
+        return {"watts": int(result.get("watts", 100)), "hours_on": float(result.get("hours_on", 2.0)), "hours_idle": float(result.get("hours_idle", 0.0))}
     except Exception:
         return {"watts": 100, "hours_on": 2.0, "hours_idle": 0.0}
-
-# -----------------------------------------
-# OPTIMIZER
-# -----------------------------------------
-def compute_energy_results(data):
-    devices = data.get("devices", [])
-    rates = data.get("energy_rates", [])
-    avg_rate = sum(r["cost_per_kwh"] for r in rates) / len(rates) if rates else 0.12
-
-    # Guard: no devices
-    if not devices:
-        return {
-            "summary": {"total_kwh_per_day": 0.0, "total_cost_per_month": 0.0},
-            "breakdown": [],
-            "optimization": {
-                "best_hours": [],
-                "worst_hours": [],
-                "potential_savings_percent": 0,
-                "potential_monthly_savings_dollars": 0.0,
-            },
-            "phantom_load": {"total_watts": 0.0, "daily_kwh": 0.0, "percentage_of_total": 0},
-            "power_score": 50,
-            "monthly_projection": {m: 0.0 for m in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]},
-        }
-
-    breakdown = []
-    total_kwh = 0.0
-    for device in devices:
-        on_watts = device.get("power_on_watts", 0)
-        idle_watts = device.get("power_idle_watts", on_watts * 0.05)
-        hours_on = device.get("hours_on_per_day", 0)
-        hours_idle = device.get("hours_idle_per_day", 0)
-        kwh_per_day = (on_watts * hours_on + idle_watts * hours_idle) / 1000
-        cost_per_month = kwh_per_day * 30 * avg_rate
-        total_kwh += kwh_per_day
-        breakdown.append({
-            "device_name": device["device_name"],
-            "kwh_per_day": round(kwh_per_day, 3),
-            "cost_per_month": round(cost_per_month, 2),
-        })
-
-    total_cost_per_month = round(total_kwh * 30 * avg_rate, 2)
-    sorted_rates = sorted(rates, key=lambda r: r["cost_per_kwh"])
-    best_hours = [r["hour"] for r in sorted_rates[:6]]
-    worst_hours = [r["hour"] for r in sorted_rates[-3:]]
-    cheapest = sorted_rates[0]["cost_per_kwh"] if sorted_rates else avg_rate
-    most_expensive = sorted_rates[-1]["cost_per_kwh"] if sorted_rates else avg_rate
-    savings_pct = round((1 - cheapest / most_expensive) * 100) if most_expensive else 0
-    potential_savings = round(total_cost_per_month * savings_pct / 100, 2)
-
-    phantom_watts = sum(
-        device.get("power_on_watts", 0) * 0.05 * device.get("hours_idle_per_day", 0)
-        for device in devices
-    )
-    phantom_kwh = round(phantom_watts / 1000, 3)
-    # Guard against total_kwh == 0
-    phantom_pct = round(phantom_kwh / total_kwh * 100) if total_kwh > 0 else 0
-
-    worst_set = set(worst_hours)
-    total_on_hours = sum(d.get("hours_on_per_day", 0) for d in devices)
-    peak_ratio = len(worst_set) / 24
-    peak_usage_penalty = round(min(30, peak_ratio * total_on_hours * 5))
-    inefficiency_penalty = round(min(30, phantom_pct * 0.6))
-    off_peak_bonus = round(min(20, savings_pct * 0.2))
-    power_score = max(0, min(100, 100 - peak_usage_penalty - inefficiency_penalty + off_peak_bonus))
-
-    monthly_multipliers = {
-        "Jan": 1.15, "Feb": 1.10, "Mar": 1.00, "Apr": 0.95,
-        "May": 0.92, "Jun": 1.05, "Jul": 1.20, "Aug": 1.18,
-        "Sep": 1.05, "Oct": 0.95, "Nov": 1.00, "Dec": 1.12
-    }
-    monthly_projection = {
-        month: round(total_cost_per_month * mult, 2)
-        for month, mult in monthly_multipliers.items()
-    }
-
-    return {
-        "summary": {"total_kwh_per_day": round(total_kwh, 3), "total_cost_per_month": total_cost_per_month},
-        "breakdown": breakdown,
-        "optimization": {
-            "best_hours": best_hours,
-            "worst_hours": worst_hours,
-            "potential_savings_percent": savings_pct,
-            "potential_monthly_savings_dollars": potential_savings,
-        },
-        "phantom_load": {"total_watts": round(phantom_watts, 1), "daily_kwh": phantom_kwh, "percentage_of_total": phantom_pct},
-        "power_score": power_score,
-        "monthly_projection": monthly_projection,
-    }
-
-# -----------------------------------------
-# AI ENGINE
-# -----------------------------------------
-def call_groq(prompt, max_tokens=1024):
-    api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": "llama-3.3-70b-versatile", "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]},
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
-
-def generate_recommendation(data):
-    devices = data.get("devices", [])
-    rates = data.get("energy_rates", [])
-    results = data.get("computed_results", {})
-    power_score = results.get("power_score", 50)
-    prompt = f"""You are an energy optimization AI. Analyze this user's energy data and return recommendations.
-Devices: {json.dumps(devices)}
-Rates: {json.dumps(rates)}
-Summary: {json.dumps(results)}
-PowerScore is {power_score}/100. Return ONLY a JSON object:
-{{"current_energy_score":{power_score},"new_energy_score":<int higher than {power_score}>,"recommendations":["<tip>","<tip>","<tip>"],"estimated_monthly_savings":<float>,"insights":["<insight>","<insight>"],"best_usage_hours":[<ints>],"worst_usage_hours":[<ints>]}}"""
-    raw = call_groq(prompt, max_tokens=1024)
-    try:
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-        return json.loads(raw)
-    except Exception:
-        return {"error": "Failed to parse AI response"}
-
-def ask_question(question, data):
-    prompt = f"""You are PowerPilot, a friendly home energy advisor.
-Devices: {json.dumps(data.get('devices', []))}
-Rates: {json.dumps(data.get('energy_rates', []))}
-Summary: {json.dumps(data.get('computed_results', {}))}
-User asks: "{question}"
-Answer in 2-4 sentences. Be specific, friendly, no jargon."""
-    return call_groq(prompt, max_tokens=512)
 
 # -----------------------------------------
 # SESSION STATE
 # -----------------------------------------
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "ai_result" not in st.session_state:
-    st.session_state.ai_result = None
-if "refresh_devices" not in st.session_state:
-    st.session_state.refresh_devices = 0
-if "device_lookup_name" not in st.session_state:
-    st.session_state.device_lookup_name = ""
-if "device_defaults" not in st.session_state:
-    st.session_state.device_defaults = {"watts": 100, "hours_on": 2.0, "hours_idle": 0.0}
+for key, val in {
+    "chat_history": [],
+    "ai_result": None,
+    "refresh_devices": 0,
+    "device_lookup_name": "",
+    "device_defaults": {"watts": 100, "hours_on": 2.0, "hours_idle": 0.0},
+    "active_zip": None,
+    "rate_source": "fallback",
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
 # -----------------------------------------
 # HEADER
@@ -636,28 +531,63 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------
-# USER SELECTOR — only show Home 1 (hide Home 2)
+# USER SELECTOR + ZIP CODE MANAGER
 # -----------------------------------------
 with st.spinner("Loading your energy profile..."):
     users_df = get_users()
 
-# Filter to only first user (remove public Home 2 option)
+# Only show the first user (Home 1)
 users_df = users_df.head(1)
 user_ids = users_df["USER_ID"].tolist()
 user_labels = {uid: f"Home {i+1}" for i, uid in enumerate(user_ids)}
 
-col_user, col_spacer = st.columns([1, 3])
+col_user, col_zip, col_zip_btn, col_spacer = st.columns([1, 1, 0.6, 1.4])
+
 with col_user:
     selected_label = st.selectbox("Viewing profile for", options=list(user_labels.values()))
+
 selected_user = [k for k, v in user_labels.items() if v == selected_label][0]
-
 zip_row = users_df[users_df["USER_ID"] == selected_user].iloc[0]
-zip_code = zip_row["ZIP_CODE"]
+db_zip = str(zip_row["ZIP_CODE"])
 
-with st.spinner("Fetching devices and rates..."):
+# Initialize active_zip from DB on first load
+if st.session_state.active_zip is None:
+    st.session_state.active_zip = db_zip
+
+with col_zip:
+    new_zip_input = st.text_input("ZIP Code", value=st.session_state.active_zip, max_chars=10, placeholder="e.g. 10001")
+
+with col_zip_btn:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("📍 Update ZIP"):
+        new_zip = new_zip_input.strip()
+        if new_zip and new_zip != st.session_state.active_zip:
+            with st.spinner(f"Fetching rates for {new_zip}..."):
+                # Clear the rate cache for the new zip so we fetch fresh
+                fetch_rates_cached.clear()
+                st.session_state.active_zip = new_zip
+                # Persist to Snowflake
+                update_user_zip(selected_user, new_zip)
+            st.success(f"ZIP updated to {new_zip}. Rates refreshed!")
+            st.rerun()
+
+# Fetch rates for the active zip (cached)
+with st.spinner("Fetching live energy rates..."):
+    rates, rate_source = fetch_rates_cached(st.session_state.active_zip)
+    st.session_state.rate_source = rate_source
+
+# Source badge
+source_class = "rate-source-live" if rate_source == "live" else "rate-source-fallback"
+source_label = "Live OpenEI Rates" if rate_source == "live" else "Estimated Rates"
+st.markdown(f"""
+<div style="margin-bottom:0.5rem;">
+    <span class="rate-source-badge {source_class}">{source_label} — ZIP {st.session_state.active_zip}</span>
+</div>
+""", unsafe_allow_html=True)
+
+with st.spinner("Fetching devices..."):
     _ = st.session_state.refresh_devices
     devices = get_devices(selected_user)
-    rates = get_rates(zip_code)
 
 data = {"user_id": selected_user, "devices": devices, "energy_rates": rates}
 computed = compute_energy_results(data)
@@ -809,14 +739,18 @@ with tab2:
         st.markdown("""
         <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;overflow:hidden;">
             <div class="device-row device-row-header">
-                <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Share</div>
+                <div>Device</div><div>Type</div><div>kWh/day</div><div>Cost/month</div><div>Share</div>
             </div>
         """, unsafe_allow_html=True)
         for item in breakdown:
             share = round(item["kwh_per_day"] / total_kwh * 100) if total_kwh > 0 else 0
+            dtype = item.get("device_type", "standard")
+            badge_class = f"badge-{dtype}"
+            badge_label = {"cooling": "❄ Cooling", "heating": "🔥 Heating", "standard": "⚙ Standard"}.get(dtype, "⚙ Standard")
             st.markdown(f"""
             <div class="device-row">
                 <div class="device-name">{item['device_name']}</div>
+                <div><span class="badge {badge_class}">{badge_label}</span></div>
                 <div class="device-val">{item['kwh_per_day']}</div>
                 <div class="device-cost">${item['cost_per_month']}</div>
                 <div class="device-val">{share}%</div>
@@ -824,9 +758,15 @@ with tab2:
             """, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Add Device with smart defaults ──
-    st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>', unsafe_allow_html=True)
+    # HVAC note
+    st.markdown("""
+    <div style="font-size:0.72rem;color:#4A6080;font-family:Space Mono,monospace;margin-top:0.6rem;padding:0.6rem 0.8rem;background:#0A1018;border-radius:8px;border:1px solid #1E2A3A;">
+        ❄ Cooling devices (AC, etc.) are only counted Jun–Sep in the projection. 🔥 Heating devices are only counted Nov–Mar.
+    </div>
+    """, unsafe_allow_html=True)
 
+    # ── Add Device ──
+    st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>', unsafe_allow_html=True)
     st.markdown("""
     <div style="font-size:0.75rem;color:#4A6080;font-family:Space Mono,monospace;margin-bottom:0.8rem;">
         ⚡ Type a device name and click <strong style="color:#00D4FF;">Look Up Defaults</strong> to auto-fill average wattage and usage hours.
@@ -835,11 +775,11 @@ with tab2:
 
     lookup_col, btn_col = st.columns([3, 1])
     with lookup_col:
-        lookup_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, Dishwasher, LED Light...", key="lookup_input")
+        lookup_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, Air Conditioner, LED Light...", key="lookup_input")
     with btn_col:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔍 Look Up Defaults") and lookup_name:
-            with st.spinner(f"Looking up typical specs for '{lookup_name}'..."):
+            with st.spinner(f"Looking up specs for '{lookup_name}'..."):
                 defaults = get_device_defaults_ai(lookup_name)
                 st.session_state.device_defaults = defaults
                 st.session_state.device_lookup_name = lookup_name
@@ -849,7 +789,7 @@ with tab2:
     with st.form("add_device_form", clear_on_submit=True):
         fc1, fc2, fc3, fc4 = st.columns(4)
         with fc1:
-            new_name = st.text_input("Confirm Name", value=st.session_state.device_lookup_name, placeholder="e.g. Dishwasher")
+            new_name = st.text_input("Confirm Name", value=st.session_state.device_lookup_name, placeholder="e.g. Air Conditioner")
         with fc2:
             new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=int(defaults["watts"]))
         with fc3:
@@ -890,13 +830,8 @@ with tab3:
         max_val = max(values) if values and max(values) > 0 else 1
         min_val = min(values) if values else 0
 
-        # SVG line chart dimensions
-        SVG_W = 580
-        SVG_H = 260
-        PAD_L = 55
-        PAD_R = 20
-        PAD_T = 20
-        PAD_B = 45
+        SVG_W, SVG_H = 580, 260
+        PAD_L, PAD_R, PAD_T, PAD_B = 55, 20, 20, 45
         chart_w = SVG_W - PAD_L - PAD_R
         chart_h = SVG_H - PAD_T - PAD_B
         n = len(months)
@@ -910,74 +845,78 @@ with tab3:
                 return PAD_T + chart_h / 2
             return PAD_T + chart_h - ((v - min_val) / span) * chart_h
 
-        # Build polyline points
         points = " ".join(f"{x_pos(i):.1f},{y_pos(v):.1f}" for i, v in enumerate(values))
-
-        # Build filled area path
         area_points = f"M{x_pos(0):.1f},{y_pos(values[0]):.1f} "
         for i, v in enumerate(values):
             area_points += f"L{x_pos(i):.1f},{y_pos(v):.1f} "
         area_points += f"L{x_pos(n-1):.1f},{PAD_T + chart_h} L{x_pos(0):.1f},{PAD_T + chart_h} Z"
 
-        # Y-axis grid lines & labels
         grid_lines = ""
-        y_steps = 4
-        for gi in range(y_steps + 1):
-            gv = min_val + (max_val - min_val) * gi / y_steps
+        for gi in range(5):
+            gv = min_val + (max_val - min_val) * gi / 4
             gy = y_pos(gv)
             grid_lines += f'<line x1="{PAD_L}" y1="{gy:.1f}" x2="{PAD_L + chart_w}" y2="{gy:.1f}" stroke="#1E2A3A" stroke-width="1"/>'
             grid_lines += f'<text x="{PAD_L - 8}" y="{gy + 4:.1f}" text-anchor="end" font-family="Space Mono,monospace" font-size="9" fill="#4A6080">${gv:.0f}</text>'
 
-        # X-axis labels and dots
+        # Color dots by season
+        SEASON_COLORS = {
+            "Jan": "#FF6B35", "Feb": "#FF6B35", "Mar": "#FFB347",
+            "Apr": "#00FF94", "May": "#00FF94", "Jun": "#00D4FF",
+            "Jul": "#00D4FF", "Aug": "#00D4FF", "Sep": "#00FF94",
+            "Oct": "#FFB347", "Nov": "#FF6B35", "Dec": "#FF6B35",
+        }
+
         x_labels = ""
         dots = ""
         for i, (m, v) in enumerate(zip(months, values)):
             px = x_pos(i)
             py = y_pos(v)
+            dot_color = SEASON_COLORS.get(m, "#00D4FF")
             x_labels += f'<text x="{px:.1f}" y="{PAD_T + chart_h + 18}" text-anchor="middle" font-family="Space Mono,monospace" font-size="9" fill="#4A6080">{m}</text>'
-            dots += f'''<circle cx="{px:.1f}" cy="{py:.1f}" r="4" fill="#00D4FF" stroke="#080C12" stroke-width="2">
-                <title>{m}: ${v}</title>
-            </circle>'''
+            dots += f'<circle cx="{px:.1f}" cy="{py:.1f}" r="4" fill="{dot_color}" stroke="#080C12" stroke-width="2"><title>{m}: ${v}</title></circle>'
 
         svg = f"""
         <svg viewBox="0 0 {SVG_W} {SVG_H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
             <defs>
                 <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#0066FF" stop-opacity="0.35"/>
+                    <stop offset="0%" stop-color="#0066FF" stop-opacity="0.30"/>
                     <stop offset="100%" stop-color="#0066FF" stop-opacity="0.02"/>
                 </linearGradient>
-            </defs>
-            <!-- Grid -->
-            {grid_lines}
-            <!-- Area fill -->
-            <path d="{area_points}" fill="url(#areaGrad)"/>
-            <!-- Line -->
-            <polyline points="{points}" fill="none" stroke="url(#lineGrad)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-            <defs>
                 <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
                     <stop offset="0%" stop-color="#0066FF"/>
                     <stop offset="100%" stop-color="#00D4FF"/>
                 </linearGradient>
             </defs>
-            <!-- Dots -->
+            {grid_lines}
+            <path d="{area_points}" fill="url(#areaGrad)"/>
+            <polyline points="{points}" fill="none" stroke="url(#lineGrad)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
             {dots}
-            <!-- X labels -->
             {x_labels}
         </svg>"""
+
+        # Legend
+        legend = """
+        <div style="display:flex;gap:16px;margin-top:0.6rem;font-family:Space Mono,monospace;font-size:0.65rem;color:#4A6080;">
+            <span><span style="color:#FF6B35;">●</span> Winter (Heat)</span>
+            <span><span style="color:#00D4FF;">●</span> Summer (AC)</span>
+            <span><span style="color:#00FF94;">●</span> Spring/Fall</span>
+            <span><span style="color:#FFB347;">●</span> Shoulder</span>
+        </div>"""
 
         st.markdown(f"""
         <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.5rem;">
             <div style="font-size:0.7rem;color:#4A6080;font-family:Space Mono,monospace;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1rem;">
-                Estimated monthly cost — based on seasonal usage patterns
+                Seasonal cost projection — HVAC only counted in active months
             </div>
             {svg}
+            {legend}
         </div>
         """, unsafe_allow_html=True)
 
     with col_p2:
         annual_total = round(sum(values), 2)
         annual_savings = round(annual_total * computed["optimization"]["potential_savings_percent"] / 100, 2)
-        peak_month = max(projection, key=projection.get) if projection else "N/A"
+        peak_month = max(projection, key=projection.get) if any(v > 0 for v in values) else "N/A"
         peak_val = projection.get(peak_month, 0)
         st.markdown(f"""
         <div class="metric-card">
@@ -1006,7 +945,7 @@ with tab4:
     else:
         if st.button("⚡ Optimize My Usage"):
             with st.spinner("Analyzing your energy profile..."):
-                result = generate_recommendation(data)
+                result = generate_energy_recommendation(data)
                 st.session_state.ai_result = result
 
     if st.session_state.ai_result:
@@ -1051,6 +990,6 @@ with tab5:
     if st.button("Send") and question:
         st.session_state.chat_history.append({"role": "user", "content": question})
         with st.spinner("Thinking..."):
-            answer = ask_question(question, data)
+            answer = ask_energy_question(question, data)
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         st.rerun()
