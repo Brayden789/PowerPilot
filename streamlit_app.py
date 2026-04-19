@@ -17,8 +17,6 @@ st.set_page_config(
 
 # -----------------------------------------
 # DEVICE DEFAULTS
-# Smart lookup: name -> (watts, hours_on, hours_idle)
-# Seasonal appliances get flagged separately
 # -----------------------------------------
 DEVICE_DEFAULTS = {
     # Kitchen
@@ -61,7 +59,7 @@ DEVICE_DEFAULTS = {
     "nintendo switch":      (18,   3,  21),
     "router":               (10,   24,  0),
     "modem":                (10,   24,  0),
-    # Climate — seasonal (handled specially in projection)
+    # Climate
     "air conditioner":      (1500, 8,  16),
     "ac":                   (1500, 8,  16),
     "window ac":            (1200, 8,  16),
@@ -93,7 +91,6 @@ DEVICE_DEFAULTS = {
     "printer":              (30,   0.5, 0),
 }
 
-# Seasonal appliances: months they are ACTIVE (1=Jan, 12=Dec)
 SEASONAL_MONTHS = {
     "air conditioner":      [6, 7, 8, 9],
     "ac":                   [6, 7, 8, 9],
@@ -119,17 +116,15 @@ def get_device_defaults(name: str):
     for k, v in DEVICE_DEFAULTS.items():
         if k in key or key in k:
             return v
-    return (100, 2, 22)  # generic fallback
+    return (100, 2, 22)
 
 
 def is_seasonal(name: str):
-    key = name.strip().lower()
-    return key in SEASONAL_MONTHS
+    return name.strip().lower() in SEASONAL_MONTHS
 
 
 def get_active_months(name: str):
-    key = name.strip().lower()
-    return SEASONAL_MONTHS.get(key, list(range(1, 13)))
+    return SEASONAL_MONTHS.get(name.strip().lower(), list(range(1, 13)))
 
 
 # -----------------------------------------
@@ -138,147 +133,52 @@ def get_active_months(name: str):
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
-
-html, body, [class*="css"] {
-    background-color: #080C12;
-    color: #E8EDF5;
-    font-family: 'Syne', sans-serif;
-}
+html, body, [class*="css"] { background-color: #080C12; color: #E8EDF5; font-family: 'Syne', sans-serif; }
 .main { background-color: #080C12; }
-.pilot-header {
-    display: flex; align-items: center; gap: 14px;
-    padding: 2rem 0 1rem 0; border-bottom: 1px solid #1E2A3A; margin-bottom: 0.5rem;
-}
+.pilot-header { display: flex; align-items: center; gap: 14px; padding: 2rem 0 1rem 0; border-bottom: 1px solid #1E2A3A; margin-bottom: 0.5rem; }
 .pilot-logo { font-size: 2.4rem; }
-.pilot-title {
-    font-family: 'Syne', sans-serif; font-weight: 800; font-size: 2rem;
-    color: #00D4FF; letter-spacing: -0.02em; margin: 0;
-}
-.pilot-tagline {
-    font-size: 0.82rem; color: #4A6080; margin: 0.2rem 0 0 0;
-    font-family: 'Space Mono', monospace; font-style: italic;
-}
-@keyframes scoreCount {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes barGrow {
-    from { width: 0%; }
-    to   { width: var(--target-width); }
-}
-.score-ring-wrap {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 1.5rem;
-    background: linear-gradient(135deg, #0D1520 0%, #111C2E 100%);
-    border: 1px solid #1E2A3A; border-radius: 16px;
-}
-.score-number {
-    font-family: 'Space Mono', monospace; font-size: 4rem; font-weight: 700;
-    color: #00D4FF; line-height: 1; animation: scoreCount 0.8s ease-out forwards;
-}
-.score-label {
-    font-size: 0.75rem; color: #4A6080; letter-spacing: 0.12em;
-    text-transform: uppercase; margin-top: 0.4rem; font-family: 'Space Mono', monospace;
-}
-.score-bar-bg {
-    width: 100%; height: 6px; background: #1E2A3A;
-    border-radius: 3px; margin-top: 1rem; overflow: hidden;
-}
-.score-bar-fill {
-    height: 6px; border-radius: 3px;
-    background: linear-gradient(90deg, #0066FF, #00D4FF);
-    animation: barGrow 1.2s ease-out forwards;
-}
-.metric-card {
-    background: linear-gradient(135deg, #0D1520 0%, #111C2E 100%);
-    border: 1px solid #1E2A3A; border-radius: 16px; padding: 1.4rem 1.6rem; height: 100%;
-}
-.metric-value {
-    font-family: 'Space Mono', monospace; font-size: 2rem;
-    font-weight: 700; color: #E8EDF5; line-height: 1.1;
-}
+.pilot-title { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 2rem; color: #00D4FF; letter-spacing: -0.02em; margin: 0; }
+.pilot-tagline { font-size: 0.82rem; color: #4A6080; margin: 0.2rem 0 0 0; font-family: 'Space Mono', monospace; font-style: italic; }
+@keyframes scoreCount { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes barGrow { from { width: 0%; } to { width: var(--target-width); } }
+.score-ring-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1.5rem; background: linear-gradient(135deg, #0D1520 0%, #111C2E 100%); border: 1px solid #1E2A3A; border-radius: 16px; }
+.score-number { font-family: 'Space Mono', monospace; font-size: 4rem; font-weight: 700; color: #00D4FF; line-height: 1; animation: scoreCount 0.8s ease-out forwards; }
+.score-label { font-size: 0.75rem; color: #4A6080; letter-spacing: 0.12em; text-transform: uppercase; margin-top: 0.4rem; font-family: 'Space Mono', monospace; }
+.score-bar-bg { width: 100%; height: 6px; background: #1E2A3A; border-radius: 3px; margin-top: 1rem; overflow: hidden; }
+.score-bar-fill { height: 6px; border-radius: 3px; background: linear-gradient(90deg, #0066FF, #00D4FF); animation: barGrow 1.2s ease-out forwards; }
+.metric-card { background: linear-gradient(135deg, #0D1520 0%, #111C2E 100%); border: 1px solid #1E2A3A; border-radius: 16px; padding: 1.4rem 1.6rem; height: 100%; }
+.metric-value { font-family: 'Space Mono', monospace; font-size: 2rem; font-weight: 700; color: #E8EDF5; line-height: 1.1; }
 .metric-unit { font-size: 0.85rem; color: #4A6080; font-family: 'Space Mono', monospace; }
-.metric-label {
-    font-size: 0.75rem; color: #4A6080; text-transform: uppercase;
-    letter-spacing: 0.1em; margin-top: 0.3rem;
-}
+.metric-label { font-size: 0.75rem; color: #4A6080; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 0.3rem; }
 .metric-sub { font-size: 0.7rem; color: #2A3A50; margin-top: 0.2rem; font-family: 'Space Mono', monospace; }
 .metric-accent { color: #00D4FF; }
 .metric-accent-green { color: #00FF94; }
 .metric-accent-orange { color: #FF6B35; }
-.section-header {
-    font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1rem; color: #4A6080;
-    text-transform: uppercase; letter-spacing: 0.12em; margin: 2rem 0 1rem 0;
-    display: flex; align-items: center; gap: 8px;
-}
+.section-header { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1rem; color: #4A6080; text-transform: uppercase; letter-spacing: 0.12em; margin: 2rem 0 1rem 0; display: flex; align-items: center; gap: 8px; }
 .section-line { flex: 1; height: 1px; background: #1E2A3A; }
-.hour-bar-wrap {
-    position: relative; display: flex; flex-direction: column;
-    align-items: center; justify-content: flex-end; height: 80px; cursor: pointer;
-}
+.hour-bar-wrap { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 80px; cursor: pointer; }
 .hour-bar-wrap:hover .hour-tooltip { display: block; }
-.hour-tooltip {
-    display: none; position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
-    background: #1E2A3A; color: #E8EDF5; font-family: 'Space Mono', monospace;
-    font-size: 0.6rem; padding: 4px 7px; border-radius: 5px;
-    white-space: nowrap; z-index: 10; border: 1px solid #2A3A50;
-}
+.hour-tooltip { display: none; position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); background: #1E2A3A; color: #E8EDF5; font-family: 'Space Mono', monospace; font-size: 0.6rem; padding: 4px 7px; border-radius: 5px; white-space: nowrap; z-index: 10; border: 1px solid #2A3A50; }
 .hour-bar { width: 100%; border-radius: 3px 3px 0 0; transition: opacity 0.15s; }
 .hour-bar-wrap:hover .hour-bar { opacity: 0.75; }
-.hour-label {
-    font-size: 0.48rem; font-family: 'Space Mono', monospace;
-    color: #4A6080; text-align: center; margin-top: 3px;
-}
-.device-row {
-    display: grid; grid-template-columns: 2fr 1fr 1fr 1fr;
-    padding: 0.8rem 1rem; border-bottom: 1px solid #1E2A3A; align-items: center;
-}
+.hour-label { font-size: 0.48rem; font-family: 'Space Mono', monospace; color: #4A6080; text-align: center; margin-top: 3px; }
+.device-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; padding: 0.8rem 1rem; border-bottom: 1px solid #1E2A3A; align-items: center; }
 .device-row:last-child { border-bottom: none; }
-.device-row-header {
-    font-size: 0.7rem; color: #4A6080; text-transform: uppercase;
-    letter-spacing: 0.1em; font-family: 'Space Mono', monospace;
-}
+.device-row-header { font-size: 0.7rem; color: #4A6080; text-transform: uppercase; letter-spacing: 0.1em; font-family: 'Space Mono', monospace; }
 .device-name { font-weight: 600; color: #E8EDF5; }
 .device-val { font-family: 'Space Mono', monospace; font-size: 0.85rem; color: #A0B4CC; }
 .device-cost { font-family: 'Space Mono', monospace; font-size: 0.85rem; color: #00FF94; }
-.rec-card {
-    background: #0D1520; border: 1px solid #1E2A3A; border-left: 3px solid #00D4FF;
-    border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 0.6rem;
-    font-size: 0.9rem; color: #C0D0E0; line-height: 1.5;
-}
-.insight-card {
-    background: #0D1520; border: 1px solid #1E2A3A; border-left: 3px solid #00FF94;
-    border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 0.6rem;
-    font-size: 0.9rem; color: #C0D0E0; line-height: 1.5;
-}
+.rec-card { background: #0D1520; border: 1px solid #1E2A3A; border-left: 3px solid #00D4FF; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 0.6rem; font-size: 0.9rem; color: #C0D0E0; line-height: 1.5; }
+.insight-card { background: #0D1520; border: 1px solid #1E2A3A; border-left: 3px solid #00FF94; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 0.6rem; font-size: 0.9rem; color: #C0D0E0; line-height: 1.5; }
 .phantom-bar-bg { width: 100%; height: 8px; background: #1E2A3A; border-radius: 4px; margin-top: 0.5rem; }
 .phantom-bar-fill { height: 8px; border-radius: 4px; background: linear-gradient(90deg, #FF6B35, #FF3366); }
-.chat-bubble-user {
-    background: #1E2A3A; border-radius: 12px 12px 2px 12px; padding: 0.8rem 1.1rem;
-    margin: 0.5rem 0; font-size: 0.9rem; color: #E8EDF5; max-width: 80%; margin-left: auto;
-}
-.chat-bubble-ai {
-    background: #0D1A2E; border: 1px solid #1E2A3A; border-radius: 12px 12px 12px 2px;
-    padding: 0.8rem 1.1rem; margin: 0.5rem 0; font-size: 0.9rem;
-    color: #C0D0E0; max-width: 80%; line-height: 1.5;
-}
-.stButton > button {
-    background: linear-gradient(135deg, #0066FF, #00D4FF); color: #080C12;
-    font-family: 'Syne', sans-serif; font-weight: 700; border: none;
-    border-radius: 8px; padding: 0.5rem 1.5rem; font-size: 0.9rem; letter-spacing: 0.05em;
-}
+.chat-bubble-user { background: #1E2A3A; border-radius: 12px 12px 2px 12px; padding: 0.8rem 1.1rem; margin: 0.5rem 0; font-size: 0.9rem; color: #E8EDF5; max-width: 80%; margin-left: auto; }
+.chat-bubble-ai { background: #0D1A2E; border: 1px solid #1E2A3A; border-radius: 12px 12px 12px 2px; padding: 0.8rem 1.1rem; margin: 0.5rem 0; font-size: 0.9rem; color: #C0D0E0; max-width: 80%; line-height: 1.5; }
+.stButton > button { background: linear-gradient(135deg, #0066FF, #00D4FF); color: #080C12; font-family: 'Syne', sans-serif; font-weight: 700; border: none; border-radius: 8px; padding: 0.5rem 1.5rem; font-size: 0.9rem; letter-spacing: 0.05em; }
 .stButton > button:hover { opacity: 0.85; }
-.stTextInput > div > div > input {
-    background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px;
-    color: #E8EDF5; font-family: 'Space Mono', monospace; font-size: 0.85rem;
-}
-.stNumberInput > div > div > input {
-    background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px;
-    color: #E8EDF5; font-family: 'Space Mono', monospace;
-}
-.stSelectbox > div > div {
-    background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px; color: #E8EDF5;
-}
+.stTextInput > div > div > input { background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px; color: #E8EDF5; font-family: 'Space Mono', monospace; font-size: 0.85rem; }
+.stNumberInput > div > div > input { background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px; color: #E8EDF5; font-family: 'Space Mono', monospace; }
+.stSelectbox > div > div { background: #0D1520; border: 1px solid #1E2A3A; border-radius: 8px; color: #E8EDF5; }
 div[data-testid="stTab"] button { font-family: 'Syne', sans-serif; font-weight: 600; color: #4A6080; }
 div[data-testid="stTab"] button[aria-selected="true"] { color: #00D4FF; border-bottom-color: #00D4FF; }
 </style>
@@ -287,10 +187,12 @@ div[data-testid="stTab"] button[aria-selected="true"] { color: #00D4FF; border-b
 
 # -----------------------------------------
 # SNOWFLAKE
+# The key fix: reads use a cached connection, writes use a
+# FRESH connection with autocommit=True every single time.
+# This is the only reliable pattern on Streamlit Cloud.
 # -----------------------------------------
-@st.cache_resource
-def get_snowflake_connection():
-    return snowflake.connector.connect(
+def _sf_creds():
+    return dict(
         account=st.secrets["SNOWFLAKE_ACCOUNT"],
         user=st.secrets["SNOWFLAKE_USER"],
         password=st.secrets["SNOWFLAKE_PASSWORD"],
@@ -299,22 +201,40 @@ def get_snowflake_connection():
     )
 
 
+@st.cache_resource
+def get_read_connection():
+    """Cached connection — used only for SELECT queries."""
+    return snowflake.connector.connect(**_sf_creds())
+
+
 def run_query(query, params=None):
-    conn = get_snowflake_connection()
+    """SELECT queries via cached connection."""
+    conn = get_read_connection()
     cursor = conn.cursor()
-    cursor.execute(query, params) if params else cursor.execute(query)
-    columns = [col[0] for col in cursor.description]
-    rows = cursor.fetchall()
-    cursor.close()
-    return pd.DataFrame(rows, columns=columns)
+    try:
+        cursor.execute(query, params) if params else cursor.execute(query)
+        columns = [col[0] for col in cursor.description]
+        rows = cursor.fetchall()
+        return pd.DataFrame(rows, columns=columns)
+    finally:
+        cursor.close()
 
 
 def run_write(query, params=None):
-    conn = get_snowflake_connection()
+    """
+    INSERT / DELETE via a fresh autocommit connection.
+    autocommit=True means Snowflake commits immediately on execute —
+    no conn.commit() needed, and no stale cached connection issues.
+    """
+    creds = _sf_creds()
+    creds["autocommit"] = True
+    conn = snowflake.connector.connect(**creds)
     cursor = conn.cursor()
-    cursor.execute(query, params) if params else cursor.execute(query)
-    conn.commit()
-    cursor.close()
+    try:
+        cursor.execute(query, params) if params else cursor.execute(query)
+    finally:
+        cursor.close()
+        conn.close()
 
 
 # -----------------------------------------
@@ -350,7 +270,8 @@ def get_devices(user_id):
 
 def get_rates():
     df = run_query(
-        "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates WHERE zip_code = %s ORDER BY hour",
+        "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates "
+        "WHERE zip_code = %s ORDER BY hour",
         params=("13037",)
     )
     rate_lookup = {}
@@ -440,7 +361,6 @@ def compute_energy_results(devices, rates):
     off_peak_bonus = round(min(20, savings_pct * 0.2))
     power_score = max(0, min(100, 100 - peak_usage_penalty - inefficiency_penalty + off_peak_bonus))
 
-    # Monthly projection — accounts for seasonal devices
     monthly_projection = {}
     for i, month in enumerate(MONTH_NAMES):
         month_num = i + 1
@@ -449,7 +369,7 @@ def compute_energy_results(devices, rates):
             name_key = device["device_name"].strip().lower()
             active_months = get_active_months(name_key)
             if month_num not in active_months:
-                continue  # seasonal device not active this month
+                continue
             on_watts = device.get("power_on_watts", 0)
             idle_watts = device.get("power_idle_watts", on_watts * 0.05)
             hours_on = device.get("hours_on_per_day", 0)
@@ -538,14 +458,6 @@ if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
 if "refresh_devices" not in st.session_state:
     st.session_state.refresh_devices = 0
-if "device_name_input" not in st.session_state:
-    st.session_state.device_name_input = ""
-if "suggested_watts" not in st.session_state:
-    st.session_state.suggested_watts = 100
-if "suggested_on" not in st.session_state:
-    st.session_state.suggested_on = 2.0
-if "suggested_idle" not in st.session_state:
-    st.session_state.suggested_idle = 22.0
 
 USER_ID = "u1"
 
@@ -740,7 +652,6 @@ with tab2:
 """, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Add device form with smart defaults
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>',
                 unsafe_allow_html=True)
 
@@ -769,12 +680,19 @@ with tab2:
             new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=float(on), step=0.5)
         with fc3:
             new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=float(idle), step=0.5)
+
         submitted = st.form_submit_button("⚡ Add Device")
-        if submitted and new_name:
-            add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
-            st.session_state.refresh_devices += 1
-            st.success(f"Added {new_name}!")
-            st.rerun()
+        if submitted:
+            if not new_name:
+                st.error("Please enter a device name.")
+            else:
+                try:
+                    add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
+                    st.session_state.refresh_devices += 1
+                    st.success(f"✅ Added {new_name}!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Failed to add device: {e}")
 
     if breakdown:
         st.markdown('<div class="section-header" style="margin-top:1.5rem;">Remove a Device <div class="section-line"></div></div>',
@@ -785,10 +703,13 @@ with tab2:
         with col_del2:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Remove"):
-                delete_device_from_db(USER_ID, to_delete)
-                st.session_state.refresh_devices += 1
-                st.success(f"Removed {to_delete}")
-                st.rerun()
+                try:
+                    delete_device_from_db(USER_ID, to_delete)
+                    st.session_state.refresh_devices += 1
+                    st.success(f"Removed {to_delete}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Failed to remove device: {e}")
 
 # ── TAB 3: MONTHLY PROJECTION ──
 with tab3:
@@ -870,19 +791,13 @@ with tab4:
 </div>
 """, unsafe_allow_html=True)
 
-                st.markdown(
-                    '<div style="margin-top:1.5rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;'
-                    'letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Recommendations</div>',
-                    unsafe_allow_html=True
-                )
+                st.markdown('<div style="margin-top:1.5rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Recommendations</div>',
+                            unsafe_allow_html=True)
                 for rec in result.get("recommendations", []):
                     st.markdown(f'<div class="rec-card">→ {rec}</div>', unsafe_allow_html=True)
 
-                st.markdown(
-                    '<div style="margin-top:1rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;'
-                    'letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Insights</div>',
-                    unsafe_allow_html=True
-                )
+                st.markdown('<div style="margin-top:1rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:0.5rem;">Insights</div>',
+                            unsafe_allow_html=True)
                 for insight in result.get("insights", []):
                     st.markdown(f'<div class="insight-card">◆ {insight}</div>', unsafe_allow_html=True)
             else:
