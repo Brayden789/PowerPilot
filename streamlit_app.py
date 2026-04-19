@@ -516,15 +516,19 @@ def run_write(query, params=None):
 # =============================================================================
 def get_users():
     try:
-        df = run_query("SELECT * FROM POWERPILOT.MAIN.users")
+        df = run_query("SELECT user_id, zip_code FROM POWERPILOT.MAIN.users")
         df.columns = [c.upper() for c in df.columns]
-        if "USER_ID" not in df.columns or "ZIP_CODE" not in df.columns:
-            cols = df.columns.tolist()
-            if len(cols) >= 2:
-                df = df.rename(columns={cols[0]: "USER_ID", cols[1]: "ZIP_CODE"})
         return df
     except Exception:
-        return pd.DataFrame([{"USER_ID": "default_user", "ZIP_CODE": "10001"}])
+        try:
+            df = run_query("SELECT * FROM POWERPILOT.MAIN.users")
+            df.columns = [c.upper() for c in df.columns]
+            cols = df.columns.tolist()
+            uid_col = next((c for c in cols if "USER" in c or "ID" in c), cols[0])
+            zip_col = next((c for c in cols if "ZIP" in c or "CODE" in c), cols[1] if len(cols) > 1 else cols[0])
+            return df[[uid_col, zip_col]].rename(columns={uid_col: "USER_ID", zip_col: "ZIP_CODE"})
+        except Exception:
+            return pd.DataFrame([{"USER_ID": "u1", "ZIP_CODE": "13037"}])
 
 def get_devices(user_id):
     df = run_query(
@@ -626,8 +630,11 @@ matches = [k for k, v in user_labels.items() if v == selected_label]
 selected_user = matches[0] if matches else user_ids[0]
 
 zip_row = users_df[users_df["USER_ID"] == selected_user].iloc[0]
-if st.session_state.active_zip is None:
-    st.session_state.active_zip = str(zip_row["ZIP_CODE"])
+db_zip = str(zip_row["ZIP_CODE"])
+# Always sync from DB on first load; also reset if user switches profile
+if st.session_state.active_zip is None or st.session_state.get("last_user") != selected_user:
+    st.session_state.active_zip = db_zip
+    st.session_state["last_user"] = selected_user
 
 with col_zip:
     new_zip_input = st.text_input("ZIP Code", value=st.session_state.active_zip, max_chars=10)
