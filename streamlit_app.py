@@ -673,15 +673,15 @@ with tab2:
         w, on, idle = 100, 2, 22
 
     with st.form("add_device_form"):
-    fc1, fc2, fc3 = st.columns(3)
-    with fc1:
-        new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=int(w))
-    with fc2:
-        new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=float(on), step=0.5)
-    with fc3:
-        new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=float(idle), step=0.5)
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=int(w))
+        with fc2:
+            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=float(on), step=0.5)
+        with fc3:
+            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=float(idle), step=0.5)
 
-    submitted = st.form_submit_button("⚡ Add Device")
+        submitted = st.form_submit_button("⚡ Add Device")
 
     if submitted:
         if not new_name:
