@@ -301,13 +301,23 @@ def delete_device_from_db(user_id, device_name):
 # OPTIMIZER
 # -----------------------------------------
 def compute_energy_results(devices, rates):
+    # Always compute best/worst hours from rates regardless of devices
+    sorted_rates = sorted(rates, key=lambda r: r["cost_per_kwh"]) if rates else []
+    best_hours_base = [r["hour"] for r in sorted_rates[:6]]
+    worst_hours_base = [r["hour"] for r in sorted_rates[-3:]]
+    cheapest = sorted_rates[0]["cost_per_kwh"] if sorted_rates else 0.12
+    most_expensive = sorted_rates[-1]["cost_per_kwh"] if sorted_rates else 0.12
+    savings_pct_base = round((1 - cheapest / most_expensive) * 100) if most_expensive else 0
+
     if not devices:
         return {
             "summary": {"total_kwh_per_day": 0, "total_cost_per_month": 0},
             "breakdown": [],
             "optimization": {
-                "best_hours": [], "worst_hours": [],
-                "potential_savings_percent": 0, "potential_monthly_savings_dollars": 0
+                "best_hours": best_hours_base,
+                "worst_hours": worst_hours_base,
+                "potential_savings_percent": savings_pct_base,
+                "potential_monthly_savings_dollars": 0,
             },
             "phantom_load": {"total_watts": 0, "daily_kwh": 0, "percentage_of_total": 0},
             "power_score": 0,
@@ -685,15 +695,10 @@ with tab2:
             try:
                 add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
                 st.session_state.refresh_devices += 1
-                st.session_state["just_added"] = True
-                st.success(f"✅ Added {new_name}!")
+                st.session_state["new_device_name"] = ""
+                st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to add device: {e}")
-
-    # handle delayed rerun so success message shows first
-    if st.session_state.get("just_added"):
-        st.session_state["just_added"] = False
-        st.rerun()
 
     if breakdown:
         st.markdown('<div class="section-header" style="margin-top:1.5rem;">Remove a Device <div class="section-line"></div></div>',
