@@ -49,46 +49,24 @@ def get_devices_for_user(user_id: str) -> list[dict]:
     return devices
 
 
-def get_rates_for_zip(zip_code: str) -> list[dict]:
+def get_tou_rates() -> list[dict]:
     """
-    Pulls energy rates for a zip code from Snowflake.
-    Falls back to rates_fetcher.py if none found in DB.
+    Returns a realistic hardcoded time-of-use rate curve.
+    Cheap overnight, moderate midday, expensive evening peak.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT hour, cost_per_kwh
-        FROM energy_rates
-        WHERE zip_code = %s
-        ORDER BY hour
-    """, (zip_code,))
-
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    if not rows:
-        # fall back to live fetch if no rates in DB for this zip
-        from rates_fetcher import get_rates_by_zip
-        return get_rates_by_zip(zip_code)
-
-    return [{"hour": row[0], "cost_per_kwh": row[1]} for row in rows]
-
-
-def get_zip_for_user(user_id: str) -> str:
-    """
-    Looks up a user's zip code from the users table.
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT zip_code FROM users WHERE user_id = %s", (user_id,))
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
-
-    return row[0] if row else "13037"  # default zip if not found
+    base = 0.12
+    multipliers = [
+        (range(0, 6),   0.80),
+        (range(6, 9),   1.10),
+        (range(9, 16),  1.20),
+        (range(16, 21), 1.50),
+        (range(21, 24), 0.90),
+    ]
+    rates = []
+    for h in range(24):
+        mult = next((m for r, m in multipliers if h in r), 1.0)
+        rates.append({"hour": h, "cost_per_kwh": round(base * mult, 4)})
+    return rates
 
 
 def save_energy_profile(user_id: str, computed_results: dict):
