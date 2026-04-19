@@ -201,15 +201,9 @@ def _sf_creds():
     )
 
 
-@st.cache_resource
-def get_read_connection():
-    """Cached connection — used only for SELECT queries."""
-    return snowflake.connector.connect(**_sf_creds())
-
-
 def run_query(query, params=None):
-    """SELECT queries via cached connection."""
-    conn = get_read_connection()
+    """SELECT queries via fresh connection to avoid stale cached results after writes."""
+    conn = snowflake.connector.connect(**_sf_creds())
     cursor = conn.cursor()
     try:
         cursor.execute(query, params) if params else cursor.execute(query)
@@ -218,6 +212,7 @@ def run_query(query, params=None):
         return pd.DataFrame(rows, columns=columns)
     finally:
         cursor.close()
+        conn.close()
 
 
 def run_write(query, params=None):
