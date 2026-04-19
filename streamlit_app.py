@@ -672,27 +672,33 @@ with tab2:
     else:
         w, on, idle = 100, 2, 22
 
-    with st.form("add_device_form", clear_on_submit=True):
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
-            new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=int(w))
-        with fc2:
-            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=float(on), step=0.5)
-        with fc3:
-            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=float(idle), step=0.5)
+    with st.form("add_device_form"):
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=int(w))
+    with fc2:
+        new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=float(on), step=0.5)
+    with fc3:
+        new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=float(idle), step=0.5)
 
-        submitted = st.form_submit_button("⚡ Add Device")
-        if submitted:
-            if not new_name:
-                st.error("Please enter a device name.")
-            else:
-                try:
-                    add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
-                    st.session_state.refresh_devices += 1
-                    st.success(f"✅ Added {new_name}!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Failed to add device: {e}")
+    submitted = st.form_submit_button("⚡ Add Device")
+
+    if submitted:
+        if not new_name:
+            st.error("Please enter a device name.")
+        else:
+            try:
+                add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
+                st.session_state.refresh_devices += 1
+                st.session_state["just_added"] = True
+                st.success(f"✅ Added {new_name}!")
+            except Exception as e:
+                st.error(f"❌ Failed to add device: {e}")
+
+    # handle delayed rerun so success message shows first
+    if st.session_state.get("just_added"):
+        st.session_state["just_added"] = False
+        st.rerun()
 
     if breakdown:
         st.markdown('<div class="section-header" style="margin-top:1.5rem;">Remove a Device <div class="section-line"></div></div>',
