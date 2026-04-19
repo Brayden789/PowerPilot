@@ -570,10 +570,13 @@ USER_ID = "u1"
 # -----------------------------------------
 # LOAD DATA
 # -----------------------------------------
-with st.spinner("Loading your energy profile..."):
-    _ = st.session_state.refresh_devices
-    devices = get_devices(USER_ID)
-    rates = get_rates()
+_placeholder = st.empty()
+with _placeholder:
+    with st.spinner("Loading your energy profile..."):
+        _ = st.session_state.refresh_devices
+        devices = get_devices(USER_ID)
+        rates = get_rates()
+_placeholder.empty()
 
 computed = compute_energy_results(devices, rates)
 
@@ -749,40 +752,32 @@ with tab2:
     # Add device form with smart defaults
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>', unsafe_allow_html=True)
 
-    name_col, lookup_col = st.columns([3, 1])
-    with name_col:
-        new_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...")
-    with lookup_col:
-        st.markdown("<br>", unsafe_allow_html=True)
-        lookup_clicked = st.button("⚡ Auto-fill")
+    new_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...", key="new_device_name")
 
-    if lookup_clicked and new_name:
+    # Auto-detect defaults as user types — show hint and pre-fill sliders
+    if new_name:
         w, on, idle = get_device_defaults(new_name)
-        st.session_state.suggested_watts = w
-        st.session_state.suggested_on = float(on)
-        st.session_state.suggested_idle = float(idle)
         seasonal_note = ""
         if is_seasonal(new_name):
             active = get_active_months(new_name.strip().lower())
             month_labels = [MONTH_NAMES[m-1] for m in active]
-            seasonal_note = f" · Seasonal: active in {', '.join(month_labels)}"
-        st.success(f"Auto-filled defaults for {new_name} — {st.session_state.suggested_watts}W{seasonal_note}")
+            seasonal_note = f" · Seasonal — only active in {', '.join(month_labels)}"
+        st.markdown(f'<div style="font-size:0.72rem;color:#00D4FF;font-family:Space Mono,monospace;margin-bottom:0.5rem;">⚡ Detected: ~{w}W · {on}h on · {idle}h idle{seasonal_note} — adjust below if needed</div>', unsafe_allow_html=True)
+    else:
+        w, on, idle = 100, 2, 22
 
     with st.form("add_device_form", clear_on_submit=True):
         fc1, fc2, fc3 = st.columns(3)
         with fc1:
-            new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=st.session_state.suggested_watts)
+            new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=int(w))
         with fc2:
-            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=st.session_state.suggested_on, step=0.5)
+            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=float(on), step=0.5)
         with fc3:
-            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=st.session_state.suggested_idle, step=0.5)
+            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=float(idle), step=0.5)
         submitted = st.form_submit_button("⚡ Add Device")
         if submitted and new_name:
             add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
             st.session_state.refresh_devices += 1
-            st.session_state.suggested_watts = 100
-            st.session_state.suggested_on = 2.0
-            st.session_state.suggested_idle = 22.0
             st.success(f"Added {new_name}!")
             st.rerun()
 
@@ -816,60 +811,9 @@ with tab3:
                 "Cost ($)": list(projection.values()),
             })
             proj_df["Month"] = pd.Categorical(proj_df["Month"], categories=MONTH_NAMES, ordered=True)
-            proj_df = proj_df.sort_values("Month")
-
-            # Build SVG line chart
-            months = list(proj_df["Month"])
-            costs = list(proj_df["Cost ($)"])
-            max_cost = max(costs) if max(costs) > 0 else 1
-            min_cost = min(costs)
-            chart_w, chart_h = 700, 260
-            pad_l, pad_r, pad_t, pad_b = 55, 20, 20, 40
-
-            def cx(i):
-                return pad_l + i * (chart_w - pad_l - pad_r) / (len(months) - 1)
-            def cy(v):
-                return pad_t + (1 - (v - min_cost) / (max_cost - min_cost + 0.01)) * (chart_h - pad_t - pad_b)
-
-            points = " ".join(f"{cx(i)},{cy(c)}" for i, c in enumerate(costs))
-            fill_points = f"{cx(0)},{chart_h - pad_b} " + points + f" {cx(len(costs)-1)},{chart_h - pad_b}"
-
-            # y-axis ticks
-            y_ticks = ""
-            for tick in [min_cost, (min_cost+max_cost)/2, max_cost]:
-                y = cy(tick)
-                y_ticks += f'<line x1="{pad_l}" y1="{y}" x2="{chart_w - pad_r}" y2="{y}" stroke="#1E2A3A" stroke-width="1"/>'
-                y_ticks += f'<text x="{pad_l - 5}" y="{y + 4}" text-anchor="end" fill="#4A6080" font-size="9" font-family="Space Mono">${tick:.0f}</text>'
-
-            # month labels + dots
-            labels_svg = ""
-            dots_svg = ""
-            for i, (m, c) in enumerate(zip(months, costs)):
-                x, y = cx(i), cy(c)
-                labels_svg += f'<text x="{x}" y="{chart_h - pad_b + 14}" text-anchor="middle" fill="#4A6080" font-size="9" font-family="Space Mono">{m}</text>'
-                dots_svg += f'<circle cx="{x}" cy="{y}" r="4" fill="#00D4FF" stroke="#080C12" stroke-width="2"/>'
-                dots_svg += f'<title>{m}: ${c}</title>'
-
-            svg = f"""
-            <svg viewBox="0 0 {chart_w} {chart_h}" xmlns="http://www.w3.org/2000/svg" style="width:100%;background:#0D1520;border-radius:12px;border:1px solid #1E2A3A;">
-                {y_ticks}
-                <polyline points="{fill_points}" fill="url(#lineGrad)" opacity="0.18"/>
-                <polyline points="{points}" fill="none" stroke="url(#strokeGrad)" stroke-width="2.5" stroke-linejoin="round"/>
-                {labels_svg}
-                {dots_svg}
-                <defs>
-                    <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#00D4FF"/>
-                        <stop offset="100%" stop-color="#0D1520"/>
-                    </linearGradient>
-                    <linearGradient id="strokeGrad" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stop-color="#0066FF"/>
-                        <stop offset="100%" stop-color="#00D4FF"/>
-                    </linearGradient>
-                </defs>
-            </svg>"""
-            st.markdown(svg, unsafe_allow_html=True)
-            st.markdown('<div style="font-size:0.65rem;color:#2A3A50;font-family:Space Mono,monospace;margin-top:0.4rem;">Seasonal appliances (AC, heating) are only counted in their active months.</div>', unsafe_allow_html=True)
+            proj_df = proj_df.sort_values("Month").set_index("Month")
+            st.line_chart(proj_df, color="#00D4FF", height=260)
+            st.markdown('<div style="font-size:0.65rem;color:#4A6080;font-family:Space Mono,monospace;margin-top:0.4rem;">Seasonal appliances (AC, heating) are only counted in their active months.</div>', unsafe_allow_html=True)
 
     with col_p2:
         peak_month = max(projection, key=projection.get) if any(v > 0 for v in projection.values()) else "—"
