@@ -442,38 +442,6 @@ Return ONLY a JSON object, no extra text:
         return {"error": "Failed to parse AI response"}
 
 
-def lookup_device_specs(device_name: str) -> dict:
-    """
-    Uses Groq to look up US average wattage, hours on, and hours idle
-    for a given device. Returns a dict with watts, hours_on, hours_idle.
-    """
-    prompt = f"""You are a home energy expert. A user wants to add "{device_name}" to their energy tracker.
-Return the typical US household average energy usage for this device as JSON only, no extra text:
-{{
-  "watts": <integer, typical running wattage>,
-  "hours_on": <float, typical hours used per day>,
-  "hours_idle": <float, typical hours in standby/idle per day>,
-  "note": "<one short sentence about this device's energy use>"
-}}
-Base your answer on US Energy Information Administration averages or well-known appliance data.
-If the device is seasonal (AC, heater), use typical active-season daily hours."""
-    try:
-        raw = call_groq(prompt, max_tokens=200)
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-        result = json.loads(raw)
-        return {
-            "watts": int(result.get("watts", 100)),
-            "hours_on": float(result.get("hours_on", 2.0)),
-            "hours_idle": float(result.get("hours_idle", 0.0)),
-            "note": result.get("note", ""),
-        }
-    except Exception:
-        return {"watts": 100, "hours_on": 2.0, "hours_idle": 0.0, "note": ""}
-
-
 def ask_question(question, devices, rates, computed):
     prompt = f"""You are PowerPilot, a friendly home energy advisor.
 Devices: {json.dumps(devices)}
@@ -482,6 +450,61 @@ Summary: {json.dumps(computed)}
 User asks: "{question}"
 Answer in 2-4 sentences. Be specific, friendly, practical. No jargon."""
     return call_groq(prompt, max_tokens=512)
+
+
+def lookup_device_specs(device_name: str) -> dict:
+    """
+    Uses Groq to return US average energy specs for a device.
+    Distinguishes between active hours (actually on) vs idle hours (plugged in but not in use).
+    """
+    prompt = f"""You are a home energy expert with deep knowledge of US household appliance usage.
+A user wants to add "{device_name}" to their energy tracker.
+
+Return ONLY a JSON object with US average values. No extra text, no markdown.
+{{
+  "watts": <integer — typical wattage while actively running/on>,
+  "hours_on": <float — average hours per day the device is ACTIVELY running in a US home>,
+  "hours_idle": <float — average hours per day the device is plugged in but in standby/idle>,
+  "note": "<one sentence: key energy fact about this device based on US EIA or DOE data>"
+}}
+
+Important rules:
+- "hours_on" = device is actively doing its job (light is lit, motor running, screen on)
+- "hours_idle" = device is plugged in but doing nothing useful (TV on standby, phone charged but still plugged in)
+- hours_on + hours_idle should not exceed 24
+- For lights: they are OFF (not idle) when not in use — idle should be 0
+- For TVs/monitors: use real US average screen-on time (~4-5h/day), standby ~18h
+- For refrigerators: they cycle — treat as ~8h equivalent on, rest idle
+- For AC/heaters: use typical active-season daily hours only
+- For laptops/computers: typical active use hours, some idle
+- Base all values on US Energy Information Administration or Department of Energy averages"""
+    try:
+        api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        raw = response.json()["choices"][0]["message"]["content"].strip()
+        if "```json" in raw:
+            raw = raw.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw:
+            raw = raw.split("```")[1].split("```")[0].strip()
+        result = json.loads(raw)
+        return {
+            "watts": max(1, int(result.get("watts", 100))),
+            "hours_on": min(24.0, max(0.0, float(result.get("hours_on", 2.0)))),
+            "hours_idle": min(24.0, max(0.0, float(result.get("hours_idle", 0.0)))),
+            "note": str(result.get("note", "")),
+        }
+    except Exception as e:
+        return {"watts": 100, "hours_on": 2.0, "hours_idle": 0.0, "note": ""}
 
 
 # -----------------------------------------
@@ -493,16 +516,8 @@ if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
 if "refresh_devices" not in st.session_state:
     st.session_state.refresh_devices = 0
-if "device_suggestion" not in st.session_state:
-    st.session_state.device_suggestion = None
-if "device_search_name" not in st.session_state:
-    st.session_state.device_search_name = ""
-if "device_watts" not in st.session_state:
-    st.session_state.device_watts = 100
-if "device_hours_on" not in st.session_state:
-    st.session_state.device_hours_on = 2.0
-if "device_hours_idle" not in st.session_state:
-    st.session_state.device_hours_idle = 0.0
+if "device_lookup_result" not in st.session_state:
+    st.session_state.device_lookup_result = None   # {watts, hours_on, hours_idle, note, name}
 
 USER_ID = "u1"
 
@@ -700,68 +715,58 @@ with tab2:
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>',
                 unsafe_allow_html=True)
 
-    # Step 1: name + Search
-    srch_col1, srch_col2 = st.columns([3, 1])
-    with srch_col1:
-        search_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, TV...", key="device_search_input")
-    with srch_col2:
+    # ── Step 1: Search ──
+    s1, s2 = st.columns([3, 1])
+    with s1:
+        search_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...", key="device_search_input")
+    with s2:
         st.markdown("<br>", unsafe_allow_html=True)
-        do_search = st.button("🔍 Search", use_container_width=True)
+        do_search = st.button("🔍 Search", use_container_width=True, key="btn_search")
 
     if do_search:
         if not search_name.strip():
-            st.warning("Enter a device name first.")
+            st.warning("Enter a device name to search.")
         else:
-            with st.spinner(f"Looking up US average specs for {search_name}..."):
-                suggestion = lookup_device_specs(search_name)
-            st.session_state.device_suggestion = suggestion
-            st.session_state.device_search_name = search_name.strip()
-            st.session_state.device_watts = suggestion["watts"]
-            st.session_state.device_hours_on = suggestion["hours_on"]
-            st.session_state.device_hours_idle = suggestion["hours_idle"]
+            with st.spinner(f"Looking up US average specs for {search_name!r}..."):
+                result = lookup_device_specs(search_name.strip())
+            result["name"] = search_name.strip()
+            st.session_state.device_lookup_result = result
 
-    # Step 2: show suggestion note + editable fields + Add button
-    if st.session_state.device_suggestion:
-        note = st.session_state.device_suggestion.get("note", "")
-        if note:
-            st.markdown(
-                f'<div style="font-size:0.75rem;color:#00D4FF;font-family:Space Mono,monospace;'
-                f'margin:0.5rem 0;padding:0.6rem 1rem;background:#0D1520;border:1px solid #1E2A3A;'
-                f'border-left:3px solid #00D4FF;border-radius:8px;">⚡ {note}</div>',
-                unsafe_allow_html=True
-            )
+    # ── Step 2: Edit & Add ──
+    lr = st.session_state.device_lookup_result
+    if lr:
+        st.markdown(
+            f'<div style="font-size:0.75rem;color:#00D4FF;font-family:Space Mono,monospace;'
+            f'margin:0.6rem 0;padding:0.6rem 1rem;background:#0D1520;border:1px solid #1E2A3A;'
+            f'border-left:3px solid #00D4FF;border-radius:8px;">'
+            f'⚡ {lr["note"] or "Adjust values below if needed."}</div>',
+            unsafe_allow_html=True
+        )
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            edit_watts = st.number_input("Power (watts)", min_value=1, max_value=20000,
+                                         value=lr["watts"], key="edit_watts")
+        with fc2:
+            edit_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0,
+                                             value=lr["hours_on"], step=0.5, key="edit_hours_on")
+        with fc3:
+            edit_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0,
+                                               value=lr["hours_idle"], step=0.5, key="edit_hours_idle")
 
-    fc1, fc2, fc3 = st.columns(3)
-    with fc1:
-        final_watts = st.number_input("Power (watts)", min_value=1, max_value=20000,
-                                       value=st.session_state.device_watts, key="input_watts")
-    with fc2:
-        final_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0,
-                                          value=float(st.session_state.device_hours_on), step=0.5, key="input_hours_on")
-    with fc3:
-        final_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0,
-                                            value=float(st.session_state.device_hours_idle), step=0.5, key="input_hours_idle")
-
-    add_name = st.session_state.get("device_search_name", "").strip() or search_name.strip()
-
-    if st.button("⚡ Add Device", use_container_width=False):
-        if not add_name:
-            st.error("Search for a device first.")
-        else:
+        if st.button(f"⚡ Add {lr['name']} to my home", key="btn_add_device"):
             try:
-                add_device_to_db(USER_ID, add_name,
-                                  st.session_state.input_watts,
-                                  st.session_state.input_hours_on,
-                                  st.session_state.input_hours_idle)
+                add_device_to_db(USER_ID, lr["name"],
+                                  st.session_state.edit_watts,
+                                  st.session_state.edit_hours_on,
+                                  st.session_state.edit_hours_idle)
                 st.session_state.refresh_devices += 1
-                st.session_state.device_suggestion = None
-                st.session_state.device_search_name = ""
-                st.session_state.device_watts = 100
-                st.session_state.device_hours_on = 2.0
-                st.session_state.device_hours_idle = 0.0
+                st.session_state.device_lookup_result = None
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to add device: {e}")
+    else:
+        st.caption("Search for a device above to see suggested values.")
+
 
     if breakdown:
         st.markdown('<div class="section-header" style="margin-top:1.5rem;">Remove a Device <div class="section-line"></div></div>',
