@@ -264,17 +264,14 @@ def get_devices(user_id):
 
 
 def get_rates():
-    """
-    Returns a realistic time-of-use rate curve.
-    Cheap overnight, moderate midday, expensive evening peak.
-    """
+    """Realistic hardcoded TOU curve — cheap overnight, expensive evening peak."""
     base = 0.12
     multipliers = [
-        (range(0, 6),   0.80),   # overnight cheap
-        (range(6, 9),   1.10),   # morning ramp
-        (range(9, 16),  1.20),   # midday
-        (range(16, 21), 1.50),   # evening peak
-        (range(21, 24), 0.90),   # late night
+        (range(0, 6),   0.80),
+        (range(6, 9),   1.10),
+        (range(9, 16),  1.20),
+        (range(16, 21), 1.50),
+        (range(21, 24), 0.90),
     ]
     rates = []
     for h in range(24):
@@ -445,6 +442,38 @@ Return ONLY a JSON object, no extra text:
         return {"error": "Failed to parse AI response"}
 
 
+def lookup_device_specs(device_name: str) -> dict:
+    """
+    Uses Groq to look up US average wattage, hours on, and hours idle
+    for a given device. Returns a dict with watts, hours_on, hours_idle.
+    """
+    prompt = f"""You are a home energy expert. A user wants to add "{device_name}" to their energy tracker.
+Return the typical US household average energy usage for this device as JSON only, no extra text:
+{{
+  "watts": <integer, typical running wattage>,
+  "hours_on": <float, typical hours used per day>,
+  "hours_idle": <float, typical hours in standby/idle per day>,
+  "note": "<one short sentence about this device's energy use>"
+}}
+Base your answer on US Energy Information Administration averages or well-known appliance data.
+If the device is seasonal (AC, heater), use typical active-season daily hours."""
+    try:
+        raw = call_groq(prompt, max_tokens=200)
+        if "```json" in raw:
+            raw = raw.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw:
+            raw = raw.split("```")[1].split("```")[0].strip()
+        result = json.loads(raw)
+        return {
+            "watts": int(result.get("watts", 100)),
+            "hours_on": float(result.get("hours_on", 2.0)),
+            "hours_idle": float(result.get("hours_idle", 0.0)),
+            "note": result.get("note", ""),
+        }
+    except Exception:
+        return {"watts": 100, "hours_on": 2.0, "hours_idle": 0.0, "note": ""}
+
+
 def ask_question(question, devices, rates, computed):
     prompt = f"""You are PowerPilot, a friendly home energy advisor.
 Devices: {json.dumps(devices)}
@@ -464,6 +493,16 @@ if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
 if "refresh_devices" not in st.session_state:
     st.session_state.refresh_devices = 0
+if "device_suggestion" not in st.session_state:
+    st.session_state.device_suggestion = None
+if "device_search_name" not in st.session_state:
+    st.session_state.device_search_name = ""
+if "device_watts" not in st.session_state:
+    st.session_state.device_watts = 100
+if "device_hours_on" not in st.session_state:
+    st.session_state.device_hours_on = 2.0
+if "device_hours_idle" not in st.session_state:
+    st.session_state.device_hours_idle = 0.0
 
 USER_ID = "u1"
 
@@ -661,44 +700,65 @@ with tab2:
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>',
                 unsafe_allow_html=True)
 
-    if st.session_state.pop("_clear_device_input", False):
-        st.session_state["new_device_name"] = ""
-    new_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...", key="new_device_name")
+    # Step 1: name + Search
+    srch_col1, srch_col2 = st.columns([3, 1])
+    with srch_col1:
+        search_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, TV...", key="device_search_input")
+    with srch_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        do_search = st.button("🔍 Search", use_container_width=True)
 
-    if new_name:
-        w, on, idle = get_device_defaults(new_name)
-        seasonal_note = ""
-        if is_seasonal(new_name):
-            active = get_active_months(new_name.strip().lower())
-            month_labels = [MONTH_NAMES[m - 1] for m in active]
-            seasonal_note = f" · Seasonal — only active in {', '.join(month_labels)}"
-        st.markdown(
-            f'<div style="font-size:0.72rem;color:#00D4FF;font-family:Space Mono,monospace;margin-bottom:0.5rem;">'
-            f'⚡ Detected: ~{w}W · {on}h on · {idle}h idle{seasonal_note} — adjust below if needed</div>',
-            unsafe_allow_html=True
-        )
-    else:
-        w, on, idle = 100, 2, 22
+    if do_search:
+        if not search_name.strip():
+            st.warning("Enter a device name first.")
+        else:
+            with st.spinner(f"Looking up US average specs for {search_name}..."):
+                suggestion = lookup_device_specs(search_name)
+            st.session_state.device_suggestion = suggestion
+            st.session_state.device_search_name = search_name.strip()
+            st.session_state.device_watts = suggestion["watts"]
+            st.session_state.device_hours_on = suggestion["hours_on"]
+            st.session_state.device_hours_idle = suggestion["hours_idle"]
 
-    with st.form("add_device_form"):
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
-            new_watts = st.number_input("Power (watts)", min_value=1, max_value=20000, value=int(w))
-        with fc2:
-            new_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0, value=float(on), step=0.5)
-        with fc3:
-            new_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0, value=float(idle), step=0.5)
+    # Step 2: show suggestion note + editable fields + Add button
+    if st.session_state.device_suggestion:
+        note = st.session_state.device_suggestion.get("note", "")
+        if note:
+            st.markdown(
+                f'<div style="font-size:0.75rem;color:#00D4FF;font-family:Space Mono,monospace;'
+                f'margin:0.5rem 0;padding:0.6rem 1rem;background:#0D1520;border:1px solid #1E2A3A;'
+                f'border-left:3px solid #00D4FF;border-radius:8px;">⚡ {note}</div>',
+                unsafe_allow_html=True
+            )
 
-        submitted = st.form_submit_button("⚡ Add Device")
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        final_watts = st.number_input("Power (watts)", min_value=1, max_value=20000,
+                                       value=st.session_state.device_watts, key="input_watts")
+    with fc2:
+        final_hours_on = st.number_input("Hours ON/day", min_value=0.0, max_value=24.0,
+                                          value=float(st.session_state.device_hours_on), step=0.5, key="input_hours_on")
+    with fc3:
+        final_hours_idle = st.number_input("Hours Idle/day", min_value=0.0, max_value=24.0,
+                                            value=float(st.session_state.device_hours_idle), step=0.5, key="input_hours_idle")
 
-    if submitted:
-        if not new_name:
-            st.error("Please enter a device name.")
+    add_name = st.session_state.get("device_search_name", "").strip() or search_name.strip()
+
+    if st.button("⚡ Add Device", use_container_width=False):
+        if not add_name:
+            st.error("Search for a device first.")
         else:
             try:
-                add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
+                add_device_to_db(USER_ID, add_name,
+                                  st.session_state.input_watts,
+                                  st.session_state.input_hours_on,
+                                  st.session_state.input_hours_idle)
                 st.session_state.refresh_devices += 1
-                st.session_state._clear_device_input = True
+                st.session_state.device_suggestion = None
+                st.session_state.device_search_name = ""
+                st.session_state.device_watts = 100
+                st.session_state.device_hours_on = 2.0
+                st.session_state.device_hours_idle = 0.0
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to add device: {e}")
