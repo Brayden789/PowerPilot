@@ -263,6 +263,23 @@ def get_devices(user_id):
     return devices
 
 
+def _default_tou_rates():
+    """Realistic TOU curve used when no rates are found in the DB."""
+    base = 0.12
+    multipliers = [
+        (range(0, 6),  0.80),
+        (range(6, 9),  1.10),
+        (range(9, 16), 1.20),
+        (range(16, 21), 1.50),
+        (range(21, 24), 0.90),
+    ]
+    rates = []
+    for h in range(24):
+        mult = next((m for r, m in multipliers if h in r), 1.0)
+        rates.append({"hour": h, "cost_per_kwh": round(base * mult, 4)})
+    return rates
+
+
 def get_rates(zip_code="13037"):
     df = run_query(
         "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates "
@@ -270,13 +287,10 @@ def get_rates(zip_code="13037"):
         params=(zip_code,)
     )
     if df.empty:
-        # No rates in DB for this zip — fetch live from OpenEI
-        from rates_fetcher import get_rates_by_zip
-        return get_rates_by_zip(zip_code)
+        return _default_tou_rates()
     rate_lookup = {}
     for _, row in df.iterrows():
         rate_lookup[int(row["HOUR"])] = float(row["COST_PER_KWH"])
-    # Forward-fill so every hour 0-23 has a rate
     rates = []
     last_rate = 0.12
     for h in range(24):
@@ -306,7 +320,6 @@ def delete_device_from_db(user_id, device_name):
 # OPTIMIZER
 # -----------------------------------------
 def compute_energy_results(devices, rates):
-    # Always compute best/worst hours from rates regardless of devices
     sorted_rates_base = sorted(rates, key=lambda r: r["cost_per_kwh"]) if rates else []
     best_hours_base = [r["hour"] for r in sorted_rates_base[:6]]
     worst_hours_base = [r["hour"] for r in sorted_rates_base[-3:]]
@@ -665,7 +678,6 @@ with tab2:
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>',
                 unsafe_allow_html=True)
 
-    # Clear the device name input after a successful add
     if st.session_state.pop("_clear_device_input", False):
         st.session_state["new_device_name"] = ""
     new_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...", key="new_device_name")
