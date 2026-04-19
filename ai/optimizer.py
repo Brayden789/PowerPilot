@@ -52,7 +52,7 @@ def compute_energy_results(data: dict) -> dict:
     rates = data.get("energy_rates", [])
 
     if not devices:
-        return _empty_results()
+        return _empty_results(rates)
 
     avg_rate = sum(r["cost_per_kwh"] for r in rates) / len(rates) if rates else 0.12
 
@@ -177,14 +177,25 @@ def _compute_power_score(devices, rates, worst_hours, phantom_pct, savings_pct):
     return max(0, min(100, score))
 
 
-def _empty_results() -> dict:
+def _empty_results(rates: list = None) -> dict:
+    """
+    Returns zeroed results. If rates are provided, best/worst hours are
+    still computed so the UI can show the rate chart even with no devices.
+    """
+    sorted_rates = sorted(rates, key=lambda r: r["cost_per_kwh"]) if rates else []
+    best_hours = [r["hour"] for r in sorted_rates[:6]]
+    worst_hours = [r["hour"] for r in sorted_rates[-3:]]
+    cheapest = sorted_rates[0]["cost_per_kwh"] if sorted_rates else 0.12
+    priciest = sorted_rates[-1]["cost_per_kwh"] if sorted_rates else 0.12
+    savings_pct = round((1 - cheapest / priciest) * 100) if priciest else 0
+
     return {
         "summary": {"total_kwh_per_day": 0.0, "total_cost_per_month": 0.0},
         "breakdown": [],
         "optimization": {
-            "best_hours": [],
-            "worst_hours": [],
-            "potential_savings_percent": 0,
+            "best_hours": best_hours,
+            "worst_hours": worst_hours,
+            "potential_savings_percent": savings_pct,
             "potential_monthly_savings_dollars": 0.0,
         },
         "phantom_load": {"total_watts": 0.0, "daily_kwh": 0.0, "percentage_of_total": 0},
