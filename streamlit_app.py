@@ -12,7 +12,7 @@ st.set_page_config(
     page_title="PowerPilot",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # -----------------------------------------
@@ -302,6 +302,48 @@ def delete_device_from_db(user_id, device_name):
     )
 
 
+def get_all_users() -> list[dict]:
+    """Returns all users from the users table as a list of dicts."""
+    try:
+        df = run_query("SELECT user_id, name, zip_code FROM POWERPILOT.MAIN.users ORDER BY name")
+        return df.rename(columns=str.upper).to_dict(orient="records")
+    except Exception:
+        return []
+
+
+def create_user(user_id: str, name: str, zip_code: str):
+    """Inserts a new user into the users table."""
+    run_write(
+        "INSERT INTO POWERPILOT.MAIN.users (user_id, name, zip_code) VALUES (%s, %s, %s)",
+        params=(user_id, name, zip_code)
+    )
+
+
+def update_user_zip(user_id: str, zip_code: str):
+    """Updates the zip code for an existing user."""
+    run_write(
+        "UPDATE POWERPILOT.MAIN.users SET zip_code = %s WHERE user_id = %s",
+        params=(zip_code, user_id)
+    )
+
+
+def get_user(user_id: str) -> dict | None:
+    """Returns a single user's info."""
+    try:
+        df = run_query(
+            "SELECT user_id, name, zip_code FROM POWERPILOT.MAIN.users WHERE user_id = %s",
+            params=(user_id,)
+        )
+        if df.empty:
+            return None
+        row = df.iloc[0]
+        cols = [c.upper() for c in df.columns]
+        df.columns = cols
+        return {"user_id": df.iloc[0]["USER_ID"], "name": df.iloc[0]["NAME"], "zip_code": df.iloc[0]["ZIP_CODE"]}
+    except Exception:
+        return None
+
+
 # -----------------------------------------
 # OPTIMIZER
 # -----------------------------------------
@@ -519,8 +561,117 @@ if "refresh_devices" not in st.session_state:
     st.session_state.refresh_devices = 0
 if "device_lookup_result" not in st.session_state:
     st.session_state.device_lookup_result = None
+if "active_user_id" not in st.session_state:
+    st.session_state.active_user_id = None
+if "show_new_user_form" not in st.session_state:
+    st.session_state.show_new_user_form = False
 
-USER_ID = "u1"
+# -----------------------------------------
+# SIDEBAR — USER PROFILE
+# -----------------------------------------
+with st.sidebar:
+    st.markdown("""
+<div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;color:#00D4FF;
+     letter-spacing:-0.02em;padding-bottom:0.5rem;border-bottom:1px solid #1E2A3A;margin-bottom:1rem;">
+    ⚡ PowerPilot
+</div>
+<div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.12em;
+     font-family:'Space Mono',monospace;margin-bottom:0.8rem;">User Profile</div>
+""", unsafe_allow_html=True)
+
+    all_users = get_all_users()
+
+    if all_users:
+        user_options = {f"{u.get('NAME', u.get('name', u['USER_ID' if 'USER_ID' in u else 'user_id']))} ({u.get('USER_ID', u.get('user_id', ''))})": u.get('USER_ID', u.get('user_id', '')) for u in all_users}
+        # Normalize keys to handle both upper and lower case column names
+        def _uid(u):
+            return u.get("USER_ID") or u.get("user_id", "")
+        def _uname(u):
+            return u.get("NAME") or u.get("name") or _uid(u)
+        def _uzip(u):
+            return u.get("ZIP_CODE") or u.get("zip_code") or ""
+
+        user_options = {f"{_uname(u)} ({_uid(u)})": _uid(u) for u in all_users}
+        display_names = list(user_options.keys())
+
+        # Default selection: try to keep the active user selected
+        default_idx = 0
+        if st.session_state.active_user_id:
+            for i, uid in enumerate(user_options.values()):
+                if uid == st.session_state.active_user_id:
+                    default_idx = i
+                    break
+
+        selected_label = st.selectbox(
+            "Select profile",
+            display_names,
+            index=default_idx,
+            key="user_select"
+        )
+        selected_user_id = user_options[selected_label]
+
+        if selected_user_id != st.session_state.active_user_id:
+            st.session_state.active_user_id = selected_user_id
+            st.session_state.chat_history = []
+            st.session_state.ai_result = None
+            st.session_state.refresh_devices += 1
+
+        # Show selected user's zip
+        active_user_data = next((u for u in all_users if _uid(u) == selected_user_id), None)
+        if active_user_data:
+            current_zip = _uzip(active_user_data)
+            st.markdown(f'<div style="font-size:0.72rem;color:#4A6080;font-family:Space Mono,monospace;margin-top:0.2rem;">📍 ZIP: {current_zip or "not set"}</div>', unsafe_allow_html=True)
+
+            with st.expander("✏️ Edit ZIP code"):
+                new_zip = st.text_input("ZIP code", value=current_zip or "", max_chars=10, key="edit_zip_input")
+                if st.button("Save ZIP", key="save_zip_btn"):
+                    if new_zip.strip():
+                        try:
+                            update_user_zip(selected_user_id, new_zip.strip())
+                            st.success("ZIP updated!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+    else:
+        st.info("No profiles found. Create one below.")
+        selected_user_id = None
+        if st.session_state.active_user_id is None:
+            st.session_state.show_new_user_form = True
+
+    st.markdown("<hr style='border-color:#1E2A3A;margin:1rem 0;'>", unsafe_allow_html=True)
+
+    # --- Create new user ---
+    st.markdown('<div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.12em;font-family:Space Mono,monospace;margin-bottom:0.6rem;">+ New Profile</div>', unsafe_allow_html=True)
+
+    with st.form("new_user_form", clear_on_submit=True):
+        new_name = st.text_input("Your name", placeholder="e.g. Alex Smith")
+        new_zip  = st.text_input("ZIP code", placeholder="e.g. 13037", max_chars=10)
+        submitted = st.form_submit_button("Create Profile")
+
+        if submitted:
+            if not new_name.strip():
+                st.error("Name is required.")
+            elif not new_zip.strip():
+                st.error("ZIP code is required.")
+            else:
+                import uuid
+                new_uid = "u" + uuid.uuid4().hex[:8]
+                try:
+                    create_user(new_uid, new_name.strip(), new_zip.strip())
+                    st.session_state.active_user_id = new_uid
+                    st.session_state.chat_history = []
+                    st.session_state.ai_result = None
+                    st.session_state.refresh_devices += 1
+                    st.success(f"Profile created! Welcome, {new_name.strip()}.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not create profile: {e}")
+
+    # If no user is active at all, show a warning in the sidebar
+    if not st.session_state.active_user_id and all_users:
+        st.session_state.active_user_id = _uid(all_users[0])
+
+USER_ID = st.session_state.active_user_id or "u1"
 
 # -----------------------------------------
 # LOAD DATA
@@ -535,15 +686,26 @@ _placeholder.empty()
 
 computed = compute_energy_results(devices, rates)
 
+# Resolve display name for header
+_active_users = get_all_users()
+def _uid2(u): return u.get("USER_ID") or u.get("user_id", "")
+def _uname2(u): return u.get("NAME") or u.get("name") or _uid2(u)
+_active_user_info = next((u for u in _active_users if _uid2(u) == USER_ID), None)
+_display_name = _uname2(_active_user_info) if _active_user_info else USER_ID
+
 # -----------------------------------------
 # HEADER
 # -----------------------------------------
-st.markdown("""
+st.markdown(f"""
 <div class="pilot-header">
     <div class="pilot-logo">⚡</div>
     <div>
         <div class="pilot-title">PowerPilot</div>
         <div class="pilot-tagline">Most people think saving energy means using less. When you use it matters just as much.</div>
+    </div>
+    <div style="margin-left:auto;text-align:right;">
+        <div style="font-family:'Space Mono',monospace;font-size:0.72rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;">Viewing profile</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;color:#E8EDF5;">{_display_name}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
