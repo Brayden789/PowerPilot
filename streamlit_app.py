@@ -600,7 +600,11 @@ st.markdown("""
 # USER + ZIP SELECTOR
 # =============================================================================
 with st.spinner("Loading profile..."):
-    users_df = get_users().head(1)
+    users_df = get_users()
+
+if users_df.empty:
+    st.error("No users found in the database. Please add a user to the POWERPILOT.MAIN.users table.")
+    st.stop()
 
 user_ids = users_df["USER_ID"].tolist()
 user_labels = {uid: f"Home {i+1}" for i, uid in enumerate(user_ids)}
@@ -608,7 +612,9 @@ user_labels = {uid: f"Home {i+1}" for i, uid in enumerate(user_ids)}
 col_user, col_zip, col_zip_btn, col_spacer = st.columns([1, 1, 0.6, 1.4])
 with col_user:
     selected_label = st.selectbox("Viewing profile for", options=list(user_labels.values()))
-selected_user = [k for k, v in user_labels.items() if v == selected_label][0]
+
+matches = [k for k, v in user_labels.items() if v == selected_label]
+selected_user = matches[0] if matches else user_ids[0]
 
 zip_row = users_df[users_df["USER_ID"] == selected_user].iloc[0]
 if st.session_state.active_zip is None:
