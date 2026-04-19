@@ -263,15 +263,20 @@ def get_devices(user_id):
     return devices
 
 
-def get_rates():
+def get_rates(zip_code="13037"):
     df = run_query(
         "SELECT hour, cost_per_kwh FROM POWERPILOT.MAIN.energy_rates "
         "WHERE zip_code = %s ORDER BY hour",
-        params=("13037",)
+        params=(zip_code,)
     )
+    if df.empty:
+        # No rates in DB for this zip — fetch live from OpenEI
+        from rates_fetcher import get_rates_by_zip
+        return get_rates_by_zip(zip_code)
     rate_lookup = {}
     for _, row in df.iterrows():
         rate_lookup[int(row["HOUR"])] = float(row["COST_PER_KWH"])
+    # Forward-fill so every hour 0-23 has a rate
     rates = []
     last_rate = 0.12
     for h in range(24):
@@ -302,12 +307,12 @@ def delete_device_from_db(user_id, device_name):
 # -----------------------------------------
 def compute_energy_results(devices, rates):
     # Always compute best/worst hours from rates regardless of devices
-    sorted_rates = sorted(rates, key=lambda r: r["cost_per_kwh"]) if rates else []
-    best_hours_base = [r["hour"] for r in sorted_rates[:6]]
-    worst_hours_base = [r["hour"] for r in sorted_rates[-3:]]
-    cheapest = sorted_rates[0]["cost_per_kwh"] if sorted_rates else 0.12
-    most_expensive = sorted_rates[-1]["cost_per_kwh"] if sorted_rates else 0.12
-    savings_pct_base = round((1 - cheapest / most_expensive) * 100) if most_expensive else 0
+    sorted_rates_base = sorted(rates, key=lambda r: r["cost_per_kwh"]) if rates else []
+    best_hours_base = [r["hour"] for r in sorted_rates_base[:6]]
+    worst_hours_base = [r["hour"] for r in sorted_rates_base[-3:]]
+    cheapest_base = sorted_rates_base[0]["cost_per_kwh"] if sorted_rates_base else 0.12
+    priciest_base = sorted_rates_base[-1]["cost_per_kwh"] if sorted_rates_base else 0.12
+    savings_pct_base = round((1 - cheapest_base / priciest_base) * 100) if priciest_base else 0
 
     if not devices:
         return {
@@ -660,6 +665,9 @@ with tab2:
     st.markdown('<div class="section-header" style="margin-top:2rem;">Add a Device <div class="section-line"></div></div>',
                 unsafe_allow_html=True)
 
+    # Clear the device name input after a successful add
+    if st.session_state.pop("_clear_device_input", False):
+        st.session_state["new_device_name"] = ""
     new_name = st.text_input("Device Name", placeholder="e.g. Refrigerator, AC, LED Lights...", key="new_device_name")
 
     if new_name:
@@ -695,7 +703,7 @@ with tab2:
             try:
                 add_device_to_db(USER_ID, new_name, new_watts, new_hours_on, new_hours_idle)
                 st.session_state.refresh_devices += 1
-                st.session_state["new_device_name"] = ""
+                st.session_state._clear_device_input = True
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to add device: {e}")
